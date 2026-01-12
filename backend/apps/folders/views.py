@@ -103,6 +103,24 @@ class PhotoFolderViewSet(viewsets.ModelViewSet):
 
         return content
 
+    def destroy(self, request, *args, **kwargs):
+        """Delete folder configuration and revoke Nextcloud share."""
+        folder = self.get_object()
+
+        # Revoke Nextcloud share if it exists
+        if folder.nextcloud_share_token:
+            client = self.get_nextcloud_client()
+            if client:
+                # Get existing shares and delete them
+                shares_result = client.get_shares_for_path(
+                    folder.nextcloud_folder_path)
+                if shares_result['success']:
+                    for share in shares_result['shares']:
+                        if share.get('share_type') == 3:  # Public link
+                            client.delete_share(share['id'])
+
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=['post'])
     def regenerate_token(self, request, pk=None):
         """Regenerate the upload share token."""
