@@ -6,29 +6,32 @@ from django.conf import settings
 from django.shortcuts import redirect
 from django.http import JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 
-@api_view(['GET'])
-@permission_classes([AllowAny])
-@ensure_csrf_cookie
-def auth_status(request):
+class AuthStatusView(APIView):
     """Check if user is authenticated. Also ensures CSRF cookie is set."""
-    if request.user.is_authenticated:
-        return Response({
-            'authenticated': True,
-            'user': {
-                'id': request.user.id,
-                'username': request.user.username,
-                'email': request.user.email,
-                'first_name': request.user.first_name,
-                'last_name': request.user.last_name,
-            }
-        })
-    return Response({'authenticated': False})
+    permission_classes = [AllowAny]
+
+    @method_decorator(ensure_csrf_cookie)
+    def get(self, request):
+        if request.user.is_authenticated:
+            return Response({
+                'authenticated': True,
+                'user': {
+                    'id': request.user.id,
+                    'username': request.user.username,
+                    'email': request.user.email,
+                    'first_name': request.user.first_name,
+                    'last_name': request.user.last_name,
+                }
+            })
+        return Response({'authenticated': False})
 
 
 @api_view(['GET'])
