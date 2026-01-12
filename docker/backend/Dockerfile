@@ -33,11 +33,12 @@ RUN mkdir -p /tmp/photo_import_uploads
 
 WORKDIR /app/backend
 
-# Collect static files
-RUN python manage.py collectstatic --noinput
+# Copy entrypoint script
+COPY docker/backend/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Expose port
 EXPOSE 8080
 
-# Run with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "config.wsgi:application"]
+# Run entrypoint (handles migrations + gunicorn)
+ENTRYPOINT ["/entrypoint.sh"]
