@@ -133,6 +133,11 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 		throw new Error(error.error || error.detail || 'Request failed');
 	}
 
+	// Handle 204 No Content (e.g., DELETE responses)
+	if (response.status === 204 || response.headers.get('content-length') === '0') {
+		return undefined as T;
+	}
+
 	return response.json();
 }
 
