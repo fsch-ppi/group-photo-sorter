@@ -2,6 +2,7 @@
 Nextcloud OAuth2 Backend for Python Social Auth.
 """
 
+import base64
 from social_core.backends.oauth import BaseOAuth2
 from django.conf import settings
 
@@ -25,6 +26,25 @@ class NextcloudOAuth2(BaseOAuth2):
 
     ACCESS_TOKEN_METHOD = 'POST'
     REDIRECT_STATE = False
+    
+    def auth_complete_credentials(self):
+        """Return credentials for token exchange - empty since we use Basic Auth header."""
+        return {}
+    
+    def request_access_token(self, *args, **kwargs):
+        """Override to send client credentials via Basic Auth header (required by Nextcloud)."""
+        # Build Basic Auth header
+        client_id = self.setting('KEY')
+        client_secret = self.setting('SECRET')
+        credentials = f"{client_id}:{client_secret}"
+        basic_auth = base64.b64encode(credentials.encode()).decode()
+        
+        # Add Authorization header
+        headers = kwargs.get('headers', {})
+        headers['Authorization'] = f'Basic {basic_auth}'
+        kwargs['headers'] = headers
+        
+        return super().request_access_token(*args, **kwargs)
 
     def get_user_details(self, response):
         """Return user details from Nextcloud account."""
