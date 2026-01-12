@@ -9,7 +9,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes, authentication_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
@@ -57,6 +57,8 @@ def folder_info(request, share_token):
 
 @csrf_exempt
 @api_view(['POST'])
+# Disable authentication to skip CSRF from SessionAuthentication
+@authentication_classes([])
 @permission_classes([AllowAny])
 @parser_classes([MultiPartParser])
 def upload_file(request, share_token):
