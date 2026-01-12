@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from django.conf import settings
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import AllowAny
@@ -54,6 +55,7 @@ def folder_info(request, share_token):
     })
 
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @parser_classes([MultiPartParser])
