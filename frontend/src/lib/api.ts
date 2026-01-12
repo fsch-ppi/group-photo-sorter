@@ -4,6 +4,19 @@
 
 const API_BASE = '/api';
 
+// Get CSRF token from cookie
+function getCsrfToken(): string | null {
+	const name = 'csrftoken';
+	const cookies = document.cookie.split(';');
+	for (const cookie of cookies) {
+		const [cookieName, cookieValue] = cookie.trim().split('=');
+		if (cookieName === name) {
+			return cookieValue;
+		}
+	}
+	return null;
+}
+
 export interface User {
 	id: number;
 	username: string;
@@ -91,13 +104,21 @@ export interface TaskStatus {
 }
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+	const csrfToken = getCsrfToken();
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json',
+		...(options.headers as Record<string, string>)
+	};
+	
+	// Add CSRF token for non-GET requests
+	if (csrfToken && options.method && options.method !== 'GET') {
+		headers['X-CSRFToken'] = csrfToken;
+	}
+	
 	const response = await fetch(`${API_BASE}${url}`, {
 		...options,
 		credentials: 'include',
-		headers: {
-			'Content-Type': 'application/json',
-			...options.headers
-		}
+		headers
 	});
 
 	if (!response.ok) {

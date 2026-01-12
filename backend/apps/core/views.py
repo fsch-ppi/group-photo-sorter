@@ -5,6 +5,7 @@ Core API views for authentication.
 from django.conf import settings
 from django.shortcuts import redirect
 from django.http import JsonResponse
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -13,8 +14,9 @@ from rest_framework.response import Response
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ensure_csrf_cookie
 def auth_status(request):
-    """Check if user is authenticated."""
+    """Check if user is authenticated. Also ensures CSRF cookie is set."""
     if request.user.is_authenticated:
         return Response({
             'authenticated': True,

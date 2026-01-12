@@ -125,6 +125,8 @@ CORS_ALLOW_CREDENTIALS = True
 
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = [FRONTEND_URL]
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read the cookie
 
 # Session settings
 SESSION_COOKIE_SAMESITE = 'Lax'
