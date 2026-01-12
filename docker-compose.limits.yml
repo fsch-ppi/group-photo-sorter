@@ -1,0 +1,17 @@
+# Optional resource limits for Celery workers
+# Use with: docker compose -f docker-compose.yml -f docker-compose.limits.yml up -d
+#
+# Configure limits via environment variables:
+#   CELERY_CPU_LIMIT - CPU limit (e.g., "2" for 2 cores)
+#   CELERY_MEMORY_LIMIT - Memory limit (e.g., "2G" for 2 gigabytes)
+
+services:
+  celery:
+    deploy:
+      resources:
+        limits:
+          cpus: '${CELERY_CPU_LIMIT:-2}'
+          memory: ${CELERY_MEMORY_LIMIT:-2G}
+        reservations:
+          cpus: '0.5'
+          memory: 512M

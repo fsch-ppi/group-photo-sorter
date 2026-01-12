@@ -1,0 +1,115 @@
+services:
+  # Redis for Celery message broker
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # Django backend API
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - temp_uploads:/tmp/photo_import_uploads
+      - sqlite_data:/app/backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/auth/config/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - internal
+
+  # Celery worker for file processing
+  celery:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - temp_uploads:/tmp/photo_import_uploads
+      - sqlite_data:/app/backend
+    networks:
+      - internal
+    # Resource limits (enabled via ENABLE_RESOURCE_LIMITS=true in .env)
+    # Uncomment the deploy section below when resource limits are needed
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '${CELERY_CPU_LIMIT:-2}'
+    #       memory: ${CELERY_MEMORY_LIMIT:-2G}
+
+  # Celery beat for scheduled tasks (temp file cleanup)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    command: celery -A config beat --loglevel=info --schedule=/var/lib/celery/celerybeat-schedule
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - sqlite_data:/app/backend
+      - celerybeat_data:/var/lib/celery
+    networks:
+      - internal
+
+  # Frontend (Svelte/nginx with SSL)
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+      - "8444:8444"
+    volumes:
+      - ${SSL_CERT_PATH:-./certs/fullchain.pem}:/etc/nginx/ssl/fullchain.pem:ro
+      - ${SSL_KEY_PATH:-./certs/privkey.pem}:/etc/nginx/ssl/privkey.pem:ro
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+volumes:
+  redis_data:
+  temp_uploads:
+  sqlite_data:
+  celerybeat_data:
+
+networks:
+  internal:
+    driver: bridge

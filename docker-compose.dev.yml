@@ -1,0 +1,51 @@
+services:
+  # Redis for Celery message broker
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Django backend API (development mode)
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    command: python manage.py runserver 0.0.0.0:8080
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - DJANGO_DEBUG=True
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+      - temp_uploads:/tmp/photo_import_uploads
+
+  # Celery worker for file processing
+  celery:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - DJANGO_DEBUG=True
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+      - temp_uploads:/tmp/photo_import_uploads
+
+volumes:
+  temp_uploads:
