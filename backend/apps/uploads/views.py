@@ -55,7 +55,6 @@ def folder_info(request, share_token):
     })
 
 
-@csrf_exempt
 @api_view(['POST'])
 # Disable authentication to skip CSRF from SessionAuthentication
 @authentication_classes([])
