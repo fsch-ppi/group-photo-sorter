@@ -28,17 +28,17 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=config.settings
 
-# Create non-root user for security
-RUN groupadd -r celery && useradd -r -g celery celery
+# Create app user with fixed UID (must match backend for volume sharing)
+RUN groupadd -r -g 1000 app && useradd -r -u 1000 -g app app
 
 # Create temp upload directory and celery data directory with correct permissions
 RUN mkdir -p /tmp/photo_import_uploads /var/lib/celery && \
-    chown -R celery:celery /tmp/photo_import_uploads /var/lib/celery
+    chown -R app:app /tmp/photo_import_uploads /var/lib/celery /app
 
 WORKDIR /app/backend
 
-# Switch to non-root user
-USER celery
+# Switch to app user
+USER app
 
 # Run Celery worker
 CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=2"]

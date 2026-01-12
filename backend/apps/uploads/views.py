@@ -106,6 +106,8 @@ def upload_file(request, share_token):
     # Save to temp file
     temp_dir = settings.TEMP_UPLOAD_DIR
     temp_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure temp dir is accessible by celery worker
+    os.chmod(temp_dir, 0o777)
 
     with tempfile.NamedTemporaryFile(
         dir=temp_dir,
@@ -115,6 +117,9 @@ def upload_file(request, share_token):
         for chunk in uploaded_file.chunks():
             tmp.write(chunk)
         temp_path = tmp.name
+
+    # Make temp file readable by celery worker
+    os.chmod(temp_path, 0o666)
 
     # Get client IP
     client_ip = get_client_ip(request)

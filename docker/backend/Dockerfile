@@ -28,8 +28,12 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=config.settings
 
-# Create temp upload directory
-RUN mkdir -p /tmp/photo_import_uploads
+# Create app user with fixed UID for volume sharing with celery
+RUN groupadd -r -g 1000 app && useradd -r -u 1000 -g app app
+
+# Create temp upload directory with proper permissions
+RUN mkdir -p /tmp/photo_import_uploads && \
+    chown -R app:app /tmp/photo_import_uploads /app
 
 WORKDIR /app/backend
 
@@ -39,6 +43,9 @@ RUN chmod +x /entrypoint.sh
 
 # Expose port
 EXPOSE 8080
+
+# Switch to app user
+USER app
 
 # Run entrypoint (handles migrations + gunicorn)
 ENTRYPOINT ["/entrypoint.sh"]
