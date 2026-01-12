@@ -103,6 +103,13 @@ export interface TaskStatus {
 	error?: string;
 }
 
+export interface PaginatedResponse<T> {
+	count: number;
+	next: string | null;
+	previous: string | null;
+	results: T[];
+}
+
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 	const csrfToken = getCsrfToken();
 	const headers: Record<string, string> = {
@@ -141,7 +148,10 @@ export const auth = {
 
 // Folders API
 export const folders = {
-	list: () => request<PhotoFolder[]>('/folders/'),
+	list: async (): Promise<PhotoFolder[]> => {
+		const response = await request<PaginatedResponse<PhotoFolder>>('/folders/');
+		return response.results;
+	},
 	get: (id: number) => request<PhotoFolder>(`/folders/${id}/`),
 	create: (data: Partial<PhotoFolder>) =>
 		request<PhotoFolder>('/folders/', {
