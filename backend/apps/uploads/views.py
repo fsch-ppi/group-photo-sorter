@@ -15,6 +15,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
 from apps.folders.models import PhotoFolder
+from apps.folders.nextcloud_client import NextcloudClient
 from .tasks import process_uploaded_file
 
 
@@ -103,6 +104,27 @@ def upload_file(request, share_token):
             {'error': f'File too large. Maximum size is {settings.MAX_UPLOAD_SIZE_MB}MB'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    # Check storage limit before queuing
+    if folder.storage_limit_mb:
+        try:
+            profile = folder.owner.profile
+            if profile.nextcloud_access_token:
+                client = NextcloudClient(profile.nextcloud_access_token)
+                size_result = client.get_folder_size(folder.nextcloud_folder_path)
+                if size_result['success']:
+                    current_size_mb = size_result['total_bytes'] / (1024 * 1024)
+                    # Estimate uploaded file size (approximate, actual may differ after conversion)
+                    upload_size_mb = uploaded_file.size / (1024 * 1024)
+                    if current_size_mb + upload_size_mb > folder.storage_limit_mb:
+                        return Response(
+                            {'error': f'Storage limit exceeded. Folder limit is {folder.storage_limit_mb}MB, current usage is {current_size_mb:.1f}MB.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+        except Exception as e:
+            # Log but don't block upload if we can't check storage
+            import logging
+            logging.warning(f"Failed to check storage limit for folder {folder.id}: {e}")
 
     # Save to temp file
     temp_dir = settings.TEMP_UPLOAD_DIR

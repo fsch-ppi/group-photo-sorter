@@ -17,9 +17,13 @@ def generate_share_token():
 
 class NamingFormat(models.TextChoices):
     """Available naming formats for uploaded files."""
-    DATE_EVENT = 'date_event', 'Date + Event Name (e.g., 2026-01-12_wedding.jpg)'
-    EVENT_DATE = 'event_date', 'Event Name + Date (e.g., wedding_2026-01-12.jpg)'
-    DATE_ONLY = 'date_only', 'Date Only (e.g., 2026-01-12.jpg)'
+    DATE_EVENT = 'date_event', 'Date + Event Name (e.g., 2026-01-12_143052_wedding.jpg)'
+    EVENT_DATE = 'event_date', 'Event Name + Date (e.g., wedding_2026-01-12_143052.jpg)'
+    DATE_ONLY = 'date_only', 'Date Only (e.g., 2026-01-12_143052.jpg)'
+    DATE_DAY_EVENT = 'date_day_event', 'Date (Day) + Event Name (e.g., 2026-01-12_wedding.jpg)'
+    EVENT_DATE_DAY = 'event_date_day', 'Event Name + Date (Day) (e.g., wedding_2026-01-12.jpg)'
+    DATE_HOUR_EVENT = 'date_hour_event', 'Date + Hour + Event Name (e.g., 2026-01-12_14_wedding.jpg)'
+    EVENT_DATE_HOUR = 'event_date_hour', 'Event Name + Date + Hour (e.g., wedding_2026-01-12_14.jpg)'
     ORIGINAL = 'original', 'Keep Original Name'
 
 
@@ -68,6 +72,13 @@ class PhotoFolder(models.Model):
         blank=True,
         default='',
         help_text='Message to include in README.md in the folder'
+    )
+
+    # Storage limit
+    storage_limit_mb = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text='Maximum storage limit in MB for this folder. Leave empty for no limit.'
     )
 
     # Timestamps

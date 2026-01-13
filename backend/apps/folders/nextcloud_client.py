@@ -268,3 +268,73 @@ class NextcloudClient:
             'success': False,
             'error': f'Failed to list folder: {response.status_code}'
         }
+
+    def get_folder_size(self, path: str) -> Dict[str, Any]:
+        """
+        Get the total size of a folder and its contents.
+
+        Uses WebDAV PROPFIND with Depth: infinity to get all file sizes.
+
+        Args:
+            path: Folder path relative to user's root
+
+        Returns:
+            Dict with success status and total_bytes
+        """
+        username = self._get_username()
+        if not username:
+            return {'success': False, 'error': 'Could not determine username'}
+
+        path = path.lstrip('/')
+        url = f"{self.webdav_url}/{username}/{path}"
+
+        # Request with Depth: infinity to get all nested files
+        # Note: Some servers may limit depth, but Nextcloud supports it
+        propfind_body = '''<?xml version="1.0" encoding="UTF-8"?>
+        <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+            <d:prop>
+                <d:getcontentlength/>
+                <oc:size/>
+            </d:prop>
+        </d:propfind>'''
+
+        response = requests.request(
+            'PROPFIND',
+            url,
+            headers={**self.headers, 'Depth': 'infinity', 'Content-Type': 'application/xml'},
+            data=propfind_body
+        )
+
+        if response.status_code == 207:
+            total_bytes = 0
+            try:
+                root = ET.fromstring(response.content)
+                ns = {'d': 'DAV:', 'oc': 'http://owncloud.org/ns'}
+                for resp in root.findall('.//d:response', ns):
+                    # Check for oc:size first (folder size from Nextcloud)
+                    size_elem = resp.find('.//oc:size', ns)
+                    if size_elem is not None and size_elem.text:
+                        try:
+                            total_bytes = max(total_bytes, int(size_elem.text))
+                        except ValueError:
+                            pass
+                    # Then check for file size
+                    length_elem = resp.find('.//d:getcontentlength', ns)
+                    if length_elem is not None and length_elem.text:
+                        try:
+                            total_bytes += int(length_elem.text)
+                        except ValueError:
+                            pass
+            except ET.ParseError:
+                return {'success': False, 'error': 'Failed to parse folder size response'}
+
+            return {'success': True, 'total_bytes': total_bytes}
+
+        if response.status_code == 404:
+            # Folder doesn't exist yet, size is 0
+            return {'success': True, 'total_bytes': 0}
+
+        return {
+            'success': False,
+            'error': f'Failed to get folder size: {response.status_code}'
+        }

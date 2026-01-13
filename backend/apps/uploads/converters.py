@@ -275,11 +275,13 @@ def generate_filename(
     """
     from apps.folders.models import NamingFormat
 
-    # Determine date to use
-    if file_date:
-        date_str = file_date.strftime('%Y-%m-%d_%H%M%S')
-    else:
-        date_str = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    # Use file date or current time
+    dt = file_date if file_date else datetime.now()
+
+    # Determine date string format based on naming format
+    date_full = dt.strftime('%Y-%m-%d_%H%M%S')
+    date_day = dt.strftime('%Y-%m-%d')
+    date_hour = dt.strftime('%Y-%m-%d_%H')
 
     # Get extension
     ext = '.mp4' if is_video else '.jpg'
@@ -288,11 +290,19 @@ def generate_filename(
     event = folder.event_name.replace(' ', '_')
 
     if folder.naming_format == NamingFormat.DATE_EVENT:
-        base_name = f"{date_str}_{event}"
+        base_name = f"{date_full}_{event}"
     elif folder.naming_format == NamingFormat.EVENT_DATE:
-        base_name = f"{event}_{date_str}"
+        base_name = f"{event}_{date_full}"
     elif folder.naming_format == NamingFormat.DATE_ONLY:
-        base_name = date_str
+        base_name = date_full
+    elif folder.naming_format == NamingFormat.DATE_DAY_EVENT:
+        base_name = f"{date_day}_{event}"
+    elif folder.naming_format == NamingFormat.EVENT_DATE_DAY:
+        base_name = f"{event}_{date_day}"
+    elif folder.naming_format == NamingFormat.DATE_HOUR_EVENT:
+        base_name = f"{date_hour}_{event}"
+    elif folder.naming_format == NamingFormat.EVENT_DATE_HOUR:
+        base_name = f"{event}_{date_hour}"
     else:  # ORIGINAL
         base_name = Path(original_filename).stem
 

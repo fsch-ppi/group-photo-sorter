@@ -19,7 +19,8 @@
 		nextcloud_folder_path: '',
 		naming_format: 'date_event',
 		jpeg_quality: 90,
-		readme_message: ''
+		readme_message: '',
+		storage_limit_mb: null as number | null
 	};
 	let creating = false;
 	let createError = '';
@@ -71,7 +72,8 @@
 			nextcloud_folder_path: '',
 			naming_format: 'date_event',
 			jpeg_quality: 90,
-			readme_message: ''
+			readme_message: '',
+			storage_limit_mb: null
 		};
 	}
 
@@ -264,6 +266,12 @@
 							<label class="label" for="readme_message">README Message (optional)</label>
 							<textarea id="readme_message" class="input" rows="3" bind:value={createForm.readme_message} placeholder="Welcome! Thanks for sharing your photos..."></textarea>
 						</div>
+
+						<div>
+							<label class="label" for="storage_limit">Storage Limit (MB, optional)</label>
+							<input type="number" id="storage_limit" class="input" bind:value={createForm.storage_limit_mb} placeholder="e.g., 1000 for 1GB" min="1" />
+							<p class="text-xs text-gray-500 mt-1">Maximum storage allowed for this folder. Leave empty for no limit.</p>
+						</div>
 					</div>
 
 					<div class="flex justify-end space-x-3 mt-6">
@@ -347,6 +355,10 @@
 						<div>
 							<p class="text-sm text-gray-500">JPEG Quality</p>
 							<p class="font-medium">{selectedFolder.jpeg_quality}%</p>
+						</div>
+						<div>
+							<p class="text-sm text-gray-500">Storage Limit</p>
+							<p class="font-medium">{selectedFolder.storage_limit_mb ? `${selectedFolder.storage_limit_mb} MB` : 'No limit'}</p>
 						</div>
 					</div>
 
