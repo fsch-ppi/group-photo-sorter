@@ -75,10 +75,10 @@ class PhotoFolder(models.Model):
     )
 
     # Storage limit
-    storage_limit_mb = models.PositiveIntegerField(
+    storage_limit_gb = models.FloatField(
         null=True,
         blank=True,
-        help_text='Maximum storage limit in MB for this folder. Leave empty for no limit.'
+        help_text='Maximum storage limit in GB for this folder. Leave empty for no limit.'
     )
 
     # Timestamps

@@ -41,7 +41,7 @@ export interface PhotoFolder {
 	naming_format: string;
 	jpeg_quality: number;
 	readme_message: string;
-	storage_limit_mb: number | null;
+	storage_limit_gb: number | null;
 	upload_url: string;
 	nextcloud_share_url: string | null;
 	upload_count?: number;

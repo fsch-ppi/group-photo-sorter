@@ -106,7 +106,7 @@ def upload_file(request, share_token):
         )
 
     # Check storage limit before queuing
-    if folder.storage_limit_mb:
+    if folder.storage_limit_gb:
         try:
             profile = folder.owner.profile
             if profile.nextcloud_access_token:
@@ -114,13 +114,13 @@ def upload_file(request, share_token):
                 size_result = client.get_folder_size(
                     folder.nextcloud_folder_path)
                 if size_result['success']:
-                    current_size_mb = size_result['total_bytes'] / \
-                        (1024 * 1024)
+                    current_size_gb = size_result['total_bytes'] / \
+                        (1024 * 1024 * 1024)
                     # Estimate uploaded file size (approximate, actual may differ after conversion)
-                    upload_size_mb = uploaded_file.size / (1024 * 1024)
-                    if current_size_mb + upload_size_mb > folder.storage_limit_mb:
+                    upload_size_gb = uploaded_file.size / (1024 * 1024 * 1024)
+                    if current_size_gb + upload_size_gb > folder.storage_limit_gb:
                         return Response(
-                            {'error': f'Storage limit exceeded. Folder limit is {folder.storage_limit_mb}MB, current usage is {current_size_mb:.1f}MB.'},
+                            {'error': f'Storage limit exceeded. Folder limit is {folder.storage_limit_gb}GB, current usage is {current_size_gb:.2f}GB.'},
                             status=status.HTTP_400_BAD_REQUEST
                         )
         except Exception as e:

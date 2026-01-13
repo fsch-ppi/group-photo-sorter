@@ -20,7 +20,7 @@
 		naming_format: 'date_event',
 		jpeg_quality: 90,
 		readme_message: '',
-		storage_limit_mb: null as number | null
+		storage_limit_gb: null as number | null
 	};
 	let creating = false;
 	let createError = '';
@@ -73,7 +73,7 @@
 			naming_format: 'date_event',
 			jpeg_quality: 90,
 			readme_message: '',
-			storage_limit_mb: null
+			storage_limit_gb: null
 		};
 	}
 
@@ -118,6 +118,19 @@
 			folderList = folderList.map((f) => (f.id === updated.id ? updated : f));
 		} catch (e) {
 			console.error('Failed to toggle active:', e);
+		}
+	}
+
+	async function updateStorageLimit() {
+		if (!selectedFolder) return;
+		try {
+			const updated = await folders.update(selectedFolder.id, { storage_limit_gb: selectedFolder.storage_limit_gb });
+			selectedFolder = updated;
+			folderList = folderList.map((f) => (f.id === updated.id ? updated : f));
+		} catch (e) {
+			console.error('Failed to update storage limit:', e);
+		}
+	}
 		}
 	}
 
@@ -268,8 +281,8 @@
 						</div>
 
 						<div>
-							<label class="label" for="storage_limit">Storage Limit (MB, optional)</label>
-							<input type="number" id="storage_limit" class="input" bind:value={createForm.storage_limit_mb} placeholder="e.g., 1000 for 1GB" min="1" />
+							<label class="label" for="storage_limit">Storage Limit (GB, optional)</label>
+							<input type="number" id="storage_limit" class="input" bind:value={createForm.storage_limit_gb} placeholder="e.g., 5 for 5GB" min="0.1" step="0.1" />
 							<p class="text-xs text-gray-500 mt-1">Maximum storage allowed for this folder. Leave empty for no limit.</p>
 						</div>
 					</div>
@@ -356,9 +369,20 @@
 							<p class="text-sm text-gray-500">JPEG Quality</p>
 							<p class="font-medium">{selectedFolder.jpeg_quality}%</p>
 						</div>
-						<div>
-							<p class="text-sm text-gray-500">Storage Limit</p>
-							<p class="font-medium">{selectedFolder.storage_limit_mb ? `${selectedFolder.storage_limit_mb} MB` : 'No limit'}</p>
+					</div>
+
+					<!-- Storage Limit (editable) -->
+					<div class="bg-gray-50 rounded-lg p-4">
+						<div class="flex items-center justify-between">
+							<div class="flex-1">
+								<p class="font-medium">Storage Limit</p>
+								<div class="flex items-center space-x-2 mt-2">
+									<input type="number" class="input w-24" bind:value={selectedFolder.storage_limit_gb} placeholder="No limit" min="0.1" step="0.1" />
+									<span class="text-sm text-gray-600">GB</span>
+									<button class="btn btn-primary btn-sm" on:click={updateStorageLimit}>Save</button>
+								</div>
+								<p class="text-xs text-gray-500 mt-1">Leave empty for no limit</p>
+							</div>
 						</div>
 					</div>
 
