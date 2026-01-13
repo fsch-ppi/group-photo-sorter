@@ -131,8 +131,6 @@
 			console.error('Failed to update storage limit:', e);
 		}
 	}
-		}
-	}
 
 	async function deleteFolder() {
 		if (!selectedFolder) return;
