@@ -111,9 +111,11 @@ def upload_file(request, share_token):
             profile = folder.owner.profile
             if profile.nextcloud_access_token:
                 client = NextcloudClient(profile.nextcloud_access_token)
-                size_result = client.get_folder_size(folder.nextcloud_folder_path)
+                size_result = client.get_folder_size(
+                    folder.nextcloud_folder_path)
                 if size_result['success']:
-                    current_size_mb = size_result['total_bytes'] / (1024 * 1024)
+                    current_size_mb = size_result['total_bytes'] / \
+                        (1024 * 1024)
                     # Estimate uploaded file size (approximate, actual may differ after conversion)
                     upload_size_mb = uploaded_file.size / (1024 * 1024)
                     if current_size_mb + upload_size_mb > folder.storage_limit_mb:
@@ -124,7 +126,8 @@ def upload_file(request, share_token):
         except Exception as e:
             # Log but don't block upload if we can't check storage
             import logging
-            logging.warning(f"Failed to check storage limit for folder {folder.id}: {e}")
+            logging.warning(
+                f"Failed to check storage limit for folder {folder.id}: {e}")
 
     # Save to temp file
     temp_dir = settings.TEMP_UPLOAD_DIR

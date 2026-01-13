@@ -301,7 +301,8 @@ class NextcloudClient:
         response = requests.request(
             'PROPFIND',
             url,
-            headers={**self.headers, 'Depth': 'infinity', 'Content-Type': 'application/xml'},
+            headers={**self.headers, 'Depth': 'infinity',
+                     'Content-Type': 'application/xml'},
             data=propfind_body
         )
 
