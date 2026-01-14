@@ -37,6 +37,12 @@ EXEMPT_PATHS = [
     '/robots.txt',
     '/api/auth/config/',
     '/api/auth/privacy/',
+    '/api/auth/cookie-consent/',
+]
+
+# Path prefixes that are exempt (for dynamic paths like /api/upload/xxx/)
+EXEMPT_PATH_PREFIXES = [
+    '/api/upload/',
 ]
 
 
@@ -57,6 +63,11 @@ class BotProtectionMiddleware:
         # Skip protection for exempt paths
         if request.path in EXEMPT_PATHS:
             return self.get_response(request)
+
+        # Skip protection for exempt path prefixes
+        for prefix in EXEMPT_PATH_PREFIXES:
+            if request.path.startswith(prefix):
+                return self.get_response(request)
 
         # Get client IP
         ip = self._get_client_ip(request)
