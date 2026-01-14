@@ -229,9 +229,17 @@
 
 	function handleFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
-		if (input.files) {
+		if (input.files && input.files.length > 0) {
 			addFiles(Array.from(input.files));
+			// Reset input so the same file can be selected again
+			input.value = '';
 		}
+	}
+
+	function handleDropZoneClick(e: MouseEvent) {
+		// Prevent double-firing if clicking directly on the input
+		if (e.target === fileInput) return;
+		fileInput.click();
 	}
 
 	function addFiles(newFiles: File[]) {
@@ -444,8 +452,9 @@
 		</div>
 
 		<!-- Drop Zone -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
-			class={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+			class={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
 				isDragOver
 					? 'border-primary-500 bg-primary-50'
 					: 'border-gray-300 hover:border-gray-400'
@@ -453,10 +462,10 @@
 			on:dragover={handleDragOver}
 			on:dragleave={handleDragLeave}
 			on:drop={handleDrop}
+			on:click={handleDropZoneClick}
+			on:keypress={(e) => e.key === 'Enter' && fileInput.click()}
 			role="button"
 			tabindex="0"
-			on:keypress={(e) => e.key === 'Enter' && fileInput.click()}
-			on:click={() => fileInput.click()}
 		>
 			<input
 				bind:this={fileInput}
@@ -465,6 +474,7 @@
 				accept={acceptString}
 				class="hidden"
 				on:change={handleFileSelect}
+				on:click|stopPropagation
 			/>
 
 			<svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
