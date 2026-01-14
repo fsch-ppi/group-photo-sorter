@@ -84,7 +84,7 @@ class NextcloudClient:
         """Get the current user's username (cached to reduce API calls)."""
         if self._cached_username:
             return self._cached_username
-            
+
         url = f"{self.base_url}/ocs/v2.php/cloud/user"
         response = self._request_with_retry(
             'GET',
@@ -93,7 +93,8 @@ class NextcloudClient:
         )
         if response.status_code == 200:
             data = response.json()
-            self._cached_username = data.get('ocs', {}).get('data', {}).get('id')
+            self._cached_username = data.get(
+                'ocs', {}).get('data', {}).get('id')
             return self._cached_username
         return None
 
@@ -174,7 +175,7 @@ class NextcloudClient:
     def bulk_upload(self, files: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Upload multiple files in a single bulk request to Nextcloud.
-        
+
         This uses the Nextcloud bulk upload API at /remote.php/dav/bulk
         to upload many files in one HTTP request, avoiding rate limits.
 
@@ -197,19 +198,20 @@ class NextcloudClient:
 
         # Generate a unique boundary for multipart
         boundary = f"bulk_upload_{uuid.uuid4().hex}"
-        
+
         # Build multipart body
         body_parts = []
-        
+
         for file_info in files:
             remote_path = file_info['remote_path'].lstrip('/')
             content = file_info['content']
-            content_type = file_info.get('content_type', 'application/octet-stream')
+            content_type = file_info.get(
+                'content_type', 'application/octet-stream')
             mtime = file_info.get('mtime', int(time.time()))
-            
+
             # Calculate MD5 checksum
             md5_hash = hashlib.md5(content).hexdigest()
-            
+
             # Build headers for this part
             part_headers = [
                 f"--{boundary}",
@@ -220,20 +222,20 @@ class NextcloudClient:
                 f"Content-Type: {content_type}",
                 "",  # Empty line before content
             ]
-            
+
             body_parts.append("\r\n".join(part_headers).encode('utf-8'))
             body_parts.append(content)
             body_parts.append(b"\r\n")
-        
+
         # Add closing boundary
         body_parts.append(f"--{boundary}--\r\n".encode('utf-8'))
-        
+
         # Combine all parts
         body = b"".join(body_parts)
-        
+
         # Make the bulk upload request
         url = f"{self.base_url}/remote.php/dav/bulk"
-        
+
         response = self._request_with_retry(
             'POST',
             url,
@@ -243,13 +245,13 @@ class NextcloudClient:
             },
             data=body
         )
-        
+
         if response.status_code == 200:
             try:
                 results = response.json()
                 # Check if all files succeeded
                 all_success = all(
-                    not r.get('error', False) 
+                    not r.get('error', False)
                     for r in results.values()
                 )
                 return {
@@ -263,7 +265,7 @@ class NextcloudClient:
                     'results': {},
                     'uploaded_count': len(files)
                 }
-        
+
         return {
             'success': False,
             'error': f'Bulk upload failed: {response.status_code} {response.text}'

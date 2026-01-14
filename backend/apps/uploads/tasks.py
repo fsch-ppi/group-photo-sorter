@@ -113,26 +113,27 @@ def process_image_for_batch(
 ):
     """
     Convert an image and add it to the batch queue.
-    
+
     Images are converted immediately but uploaded in batches of 20
     to avoid Nextcloud rate limiting.
     """
     start_time = time.time()
-    
+
     try:
-        folder = PhotoFolder.objects.select_related('owner__profile').get(id=folder_id)
+        folder = PhotoFolder.objects.select_related(
+            'owner__profile').get(id=folder_id)
         profile = folder.owner.profile
-        
+
         if not profile.nextcloud_access_token:
             raise RuntimeError("Owner's Nextcloud access token not available")
-        
+
         # Convert the image
         converted_bytes, metadata = convert_image_to_jpeg(
             temp_file_path,
             quality=folder.jpeg_quality
         )
         file_date = metadata.get('exif_date')
-        
+
         # Generate filename (we'll verify uniqueness during batch upload)
         new_filename = generate_filename(
             folder,
@@ -140,9 +141,9 @@ def process_image_for_batch(
             file_date,
             is_video=False
         )
-        
+
         conversion_time = time.time() - start_time
-        
+
         # Create the batch item
         batch_item = {
             'remote_path': f"{folder.nextcloud_folder_path}/{new_filename}",
@@ -156,17 +157,17 @@ def process_image_for_batch(
             'conversion_time': conversion_time,
             'mtime': int(time.time()),
         }
-        
+
         # Add to batch in Redis
         batch_key = _get_batch_key(folder_id)
-        
+
         # Get current batch
         batch_data = cache.get(batch_key, [])
         batch_data.append(batch_item)
-        
+
         # Save batch back (with 5 minute expiry as safety)
         cache.set(batch_key, batch_data, timeout=300)
-        
+
         # Check if batch is full
         if len(batch_data) >= IMAGE_BATCH_SIZE:
             # Trigger batch upload
@@ -177,17 +178,17 @@ def process_image_for_batch(
                 args=[folder_id],
                 countdown=IMAGE_BATCH_TIMEOUT
             )
-        
+
         return {
             'success': True,
             'queued_for_batch': True,
             'batch_size': len(batch_data),
             'filename': new_filename,
         }
-        
+
     except Exception as exc:
         raise self.retry(exc=exc, countdown=60)
-    
+
     finally:
         # Clean up temp file
         if os.path.exists(temp_file_path):
@@ -203,48 +204,49 @@ def flush_image_batch(self, folder_id: int):
     Upload all queued images for a folder in a single bulk request.
     """
     import base64
-    
+
     batch_key = _get_batch_key(folder_id)
     lock_key = _get_batch_lock_key(folder_id)
-    
+
     # Use a lock to prevent concurrent batch flushes
     if cache.get(lock_key):
         # Another flush is in progress, skip
         return {'skipped': True, 'reason': 'flush_in_progress'}
-    
+
     # Set lock with 60 second expiry
     cache.set(lock_key, True, timeout=60)
-    
+
     try:
         # Get and clear the batch atomically
         batch_data = cache.get(batch_key, [])
         if not batch_data:
             return {'success': True, 'uploaded': 0, 'reason': 'empty_batch'}
-        
+
         # Clear the batch from cache
         cache.delete(batch_key)
-        
+
         # Get folder and client
-        folder = PhotoFolder.objects.select_related('owner__profile').get(id=folder_id)
+        folder = PhotoFolder.objects.select_related(
+            'owner__profile').get(id=folder_id)
         profile = folder.owner.profile
-        
+
         if not profile.nextcloud_access_token:
             # Re-queue the batch items for later
             cache.set(batch_key, batch_data, timeout=300)
             raise RuntimeError("Owner's Nextcloud access token not available")
-        
+
         client = NextcloudClient(profile.nextcloud_access_token)
-        
+
         # Prepare files for bulk upload
         files_to_upload = []
         for item in batch_data:
             # Ensure unique filename
             unique_filename = get_unique_filename(
-                folder, 
-                item['new_filename'], 
+                folder,
+                item['new_filename'],
                 client
             )
-            
+
             files_to_upload.append({
                 'remote_path': f"{folder.nextcloud_folder_path}/{unique_filename}",
                 'content': base64.b64decode(item['content_b64']),
@@ -254,15 +256,15 @@ def flush_image_batch(self, folder_id: int):
                 '_original': item,
                 '_unique_filename': unique_filename,
             })
-        
+
         # Bulk upload to Nextcloud
         result = client.bulk_upload(files_to_upload)
-        
+
         if not result['success']:
             # Re-queue failed items
             cache.set(batch_key, batch_data, timeout=300)
             raise RuntimeError(f"Bulk upload failed: {result.get('error')}")
-        
+
         # Record statistics for each uploaded file
         for file_info in files_to_upload:
             original = file_info['_original']
@@ -276,16 +278,16 @@ def flush_image_batch(self, folder_id: int):
                 file_type='image',
                 conversion_time_seconds=original['conversion_time']
             )
-        
+
         return {
             'success': True,
             'uploaded': len(files_to_upload),
             'folder_id': folder_id,
         }
-        
+
     except Exception as exc:
         raise self.retry(exc=exc, countdown=60)
-    
+
     finally:
         # Release lock
         cache.delete(lock_key)
