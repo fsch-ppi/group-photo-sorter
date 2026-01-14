@@ -40,5 +40,7 @@ WORKDIR /app/backend
 # Switch to app user
 USER app
 
-# Run Celery worker
-CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=2"]
+# Run Celery worker - consume high priority queue first, then default, then low
+# This ensures photos are processed before videos
+# Using concurrency=1 ensures only one file is processed at a time (important for video processing)
+CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=1", "-Q", "high,default,low"]

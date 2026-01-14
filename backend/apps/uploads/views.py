@@ -16,7 +16,7 @@ from rest_framework.response import Response
 
 from apps.folders.models import PhotoFolder
 from apps.folders.nextcloud_client import NextcloudClient
-from .tasks import process_uploaded_file
+from .tasks import process_uploaded_file, process_image_for_batch
 
 
 def get_client_ip(request):
@@ -151,13 +151,30 @@ def upload_file(request, share_token):
     client_ip = get_client_ip(request)
 
     # Queue processing task
-    task = process_uploaded_file.delay(
-        folder_id=folder.id,
-        temp_file_path=temp_path,
-        original_filename=original_filename,
-        uploader_ip=client_ip,
-        is_video=is_video
-    )
+    # - Images use batch processing (20 at a time) to avoid rate limits
+    # - Videos are processed one at a time due to long conversion times
+    if is_video:
+        task = process_uploaded_file.apply_async(
+            kwargs={
+                'folder_id': folder.id,
+                'temp_file_path': temp_path,
+                'original_filename': original_filename,
+                'uploader_ip': client_ip,
+                'is_video': True
+            },
+            queue='low'
+        )
+    else:
+        # Use batch processing for images
+        task = process_image_for_batch.apply_async(
+            kwargs={
+                'folder_id': folder.id,
+                'temp_file_path': temp_path,
+                'original_filename': original_filename,
+                'uploader_ip': client_ip
+            },
+            queue='high'
+        )
 
     return Response({
         'success': True,

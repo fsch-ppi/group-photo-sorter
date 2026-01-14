@@ -2,6 +2,8 @@
 	import { page } from '$app/stores';
 	import { upload, type FolderInfo, type TaskStatus } from '$lib/api';
 	import { onMount } from 'svelte';
+	import { fly, slide } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
 
 	interface FileUpload {
 		file: File;
@@ -16,15 +18,23 @@
 		};
 	}
 
+	// Session management - persist upload session for 7 days
+	const SESSION_COOKIE_NAME = 'photo_upload_session';
+	const SESSION_DURATION_DAYS = 7;
+
 	let folderInfo: FolderInfo | null = null;
 	let loading = true;
 	let error = '';
-	let shareToken = '';
 
 	let files: FileUpload[] = [];
 	let isDragOver = false;
 	let fileInput: HTMLInputElement;
+	let showCompletedFiles = true;
+	let sessionId: string | null = null;
+	let filterStatus: 'all' | 'active' | 'success' | 'error' = 'all';
+	let searchQuery = '';
 
+	// Get shareToken directly from page store to avoid timing issues
 	$: shareToken = $page.params.token;
 	$: allFormats = folderInfo
 		? [...folderInfo.supported_image_formats, ...folderInfo.supported_video_formats]
@@ -35,9 +45,155 @@
 		files.length > 0 &&
 		files.every((f) => f.status === 'success' || f.status === 'error');
 	$: successCount = files.filter((f) => f.status === 'success').length;
+	$: errorCount = files.filter((f) => f.status === 'error').length;
+	$: activeFiles = files.filter((f) => f.status !== 'success' && f.status !== 'error');
+	$: completedFiles = files.filter((f) => f.status === 'success' || f.status === 'error');
+	$: hasCompletedFiles = completedFiles.length > 0;
+
+	// Filtered files based on status and search
+	$: filteredActiveFiles = activeFiles.filter(f => {
+		const matchesSearch = searchQuery === '' || f.file.name.toLowerCase().includes(searchQuery.toLowerCase());
+		const matchesFilter = filterStatus === 'all' || filterStatus === 'active';
+		return matchesSearch && matchesFilter;
+	});
+	$: filteredCompletedFiles = completedFiles.filter(f => {
+		const matchesSearch = searchQuery === '' || f.file.name.toLowerCase().includes(searchQuery.toLowerCase());
+		const matchesFilter = filterStatus === 'all' || 
+			(filterStatus === 'success' && f.status === 'success') ||
+			(filterStatus === 'error' && f.status === 'error');
+		return matchesSearch && matchesFilter;
+	});
+
+	// Session cookie helpers
+	function getSessionId(token: string): string | null {
+		const cookies = document.cookie.split(';');
+		for (const cookie of cookies) {
+			const [name, value] = cookie.trim().split('=');
+			if (name === `${SESSION_COOKIE_NAME}_${token}`) {
+				return value;
+			}
+		}
+		return null;
+	}
+
+	function setSessionId(token: string, id: string) {
+		const expires = new Date();
+		expires.setDate(expires.getDate() + SESSION_DURATION_DAYS);
+		document.cookie = `${SESSION_COOKIE_NAME}_${token}=${id}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+	}
+
+	function generateSessionId(): string {
+		// Prefer crypto.randomUUID() if available (requires secure context)
+		if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+			try {
+				return crypto.randomUUID();
+			} catch {
+				// Fall through to getRandomValues fallback
+			}
+		}
+		// Fallback using crypto.getRandomValues() - cryptographically secure and works in all contexts
+		if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+			const bytes = new Uint8Array(16);
+			crypto.getRandomValues(bytes);
+			// Set version (4) and variant (8, 9, a, or b) bits for valid UUID v4
+			bytes[6] = (bytes[6] & 0x0f) | 0x40;
+			bytes[8] = (bytes[8] & 0x3f) | 0x80;
+			const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+			return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+		}
+		// Last resort: timestamp + random (not secure, but session ID is only for UI state)
+		return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+	}
+
+	// Persist file state to localStorage
+	function saveSessionState() {
+		if (!sessionId) return;
+		const state = files.map(f => ({
+			name: f.file.name,
+			size: f.file.size,
+			status: f.status,
+			taskId: f.taskId,
+			error: f.error,
+			result: f.result
+		}));
+		localStorage.setItem(`upload_session_${shareToken}_${sessionId}`, JSON.stringify(state));
+	}
+
+	function loadSessionState(token: string): { name: string; size: number; status: string; taskId?: string; error?: string; result?: any }[] | null {
+		if (!sessionId) return null;
+		const stored = localStorage.getItem(`upload_session_${token}_${sessionId}`);
+		if (!stored) return null;
+		try {
+			return JSON.parse(stored);
+		} catch {
+			return null;
+		}
+	}
 
 	onMount(async () => {
+		// Get token directly from page params to avoid timing issues with reactive statements
+		const token = $page.params.token;
+		
+		// Try to set up session management, but don't let it break the upload functionality
+		try {
+			// Get or create session
+			sessionId = getSessionId(token);
+			if (!sessionId) {
+				sessionId = generateSessionId();
+				setSessionId(token, sessionId);
+			}
+		} catch (e) {
+			console.warn('Failed to initialize session:', e);
+			sessionId = null; // Continue without session persistence
+		}
+
 		await loadFolderInfo();
+
+		// Restore session if exists
+		try {
+			const savedState = loadSessionState(token);
+			if (savedState && savedState.length > 0) {
+				// Restore completed/processing files from session
+				for (const item of savedState) {
+					if (item.status === 'success' || item.status === 'error') {
+						// Create a placeholder file object for completed uploads
+						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
+						Object.defineProperty(placeholderFile, 'size', { value: item.size });
+						
+						files = [...files, {
+							file: placeholderFile,
+							status: item.status as FileUpload['status'],
+							progress: item.status === 'success' ? 100 : 0,
+							taskId: item.taskId,
+							error: item.error,
+							result: item.result
+						}];
+					} else if (item.taskId && (item.status === 'processing' || item.status === 'uploading')) {
+						// Check task status for in-progress uploads
+						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
+						Object.defineProperty(placeholderFile, 'size', { value: item.size });
+						
+						const fileUpload: FileUpload = {
+							file: placeholderFile,
+							status: 'processing',
+							progress: 50,
+							taskId: item.taskId
+						};
+						files = [...files, fileUpload];
+						
+						// Resume polling for this task
+						pollTaskStatus(files.length - 1, item.taskId);
+					}
+				}
+				
+				// Auto-hide completed files if there are any active ones
+				if (activeFiles.length > 0 && completedFiles.length > 0) {
+					showCompletedFiles = false;
+				}
+			}
+		} catch (e) {
+			console.warn('Failed to restore session state:', e);
+		}
 	});
 
 	async function loadFolderInfo() {
@@ -73,16 +229,34 @@
 
 	function handleFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
-		if (input.files) {
+		if (input.files && input.files.length > 0) {
 			addFiles(Array.from(input.files));
+			// Reset input so the same file can be selected again
+			input.value = '';
 		}
 	}
 
 	function addFiles(newFiles: File[]) {
+		// Check if folder info is loaded
+		if (!folderInfo || allFormats.length === 0) {
+			alert('Please wait for the page to finish loading before uploading files.');
+			return;
+		}
+
 		const validFiles = newFiles.filter((file) => {
 			const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-			return allFormats.includes(ext);
+			const isValid = allFormats.includes(ext);
+			if (!isValid) {
+				console.log(`Rejected file ${file.name}: extension ${ext} not in ${allFormats.join(', ')}`);
+			}
+			return isValid;
 		});
+
+		if (validFiles.length === 0 && newFiles.length > 0) {
+			const exts = newFiles.map(f => '.' + f.name.split('.').pop()?.toLowerCase()).join(', ');
+			alert(`No valid files found. Supported formats: ${allFormats.join(', ')}\nYour files: ${exts}`);
+			return;
+		}
 
 		const oversizedFiles = validFiles.filter(
 			(file) => file.size > (folderInfo?.max_upload_size_mb || 5120) * 1024 * 1024
@@ -116,6 +290,7 @@
 		const fileUpload = files[index];
 		files[index] = { ...fileUpload, status: 'uploading', progress: 10 };
 		files = files;
+		saveSessionState();
 
 		try {
 			const result = await upload.uploadFile(shareToken, fileUpload.file);
@@ -126,6 +301,7 @@
 				taskId: result.task_id
 			};
 			files = files;
+			saveSessionState();
 
 			// Poll for task completion
 			pollTaskStatus(index, result.task_id);
@@ -136,6 +312,7 @@
 				error: e instanceof Error ? e.message : 'Upload failed'
 			};
 			files = files;
+			saveSessionState();
 		}
 	}
 
@@ -155,6 +332,14 @@
 						result: status.result
 					};
 					files = files;
+					saveSessionState();
+					
+					// Auto-hide completed files after a short delay when new files complete
+					if (activeFiles.length > 0) {
+						setTimeout(() => {
+							showCompletedFiles = false;
+						}, 2000);
+					}
 					return;
 				} else if (status.status === 'FAILURE') {
 					files[index] = {
@@ -163,6 +348,7 @@
 						error: status.error || 'Processing failed'
 					};
 					files = files;
+					saveSessionState();
 					return;
 				}
 
@@ -184,10 +370,17 @@
 			error: 'Processing timed out'
 		};
 		files = files;
+		saveSessionState();
 	}
 
 	function removeFile(index: number) {
 		files = files.filter((_, i) => i !== index);
+		saveSessionState();
+	}
+
+	function clearCompletedFiles() {
+		files = files.filter((f) => f.status !== 'success' && f.status !== 'error');
+		saveSessionState();
 	}
 
 	function formatBytes(bytes: number): string {
@@ -252,9 +445,9 @@
 			<p class="text-gray-600">Upload your photos and videos for {folderInfo.event_name}</p>
 		</div>
 
-		<!-- Drop Zone -->
-		<div
-			class={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+		<!-- Drop Zone - using label for reliable file input triggering -->
+		<label
+			class={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
 				isDragOver
 					? 'border-primary-500 bg-primary-50'
 					: 'border-gray-300 hover:border-gray-400'
@@ -262,79 +455,180 @@
 			on:dragover={handleDragOver}
 			on:dragleave={handleDragLeave}
 			on:drop={handleDrop}
-			role="button"
-			tabindex="0"
-			on:keypress={(e) => e.key === 'Enter' && fileInput.click()}
-			on:click={() => fileInput.click()}
 		>
 			<input
 				bind:this={fileInput}
 				type="file"
 				multiple
 				accept={acceptString}
-				class="hidden"
+				class="sr-only"
 				on:change={handleFileSelect}
 			/>
 
-			<svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			<svg class="w-12 h-12 text-gray-400 mx-auto mb-4 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
 			</svg>
 
-			<p class="text-lg text-gray-700 mb-2">
+			<p class="text-lg text-gray-700 mb-2 pointer-events-none">
 				Drag & drop files here or <span class="text-primary-600 font-medium">browse</span>
 			</p>
-			<p class="text-sm text-gray-500">
+			<p class="text-sm text-gray-500 pointer-events-none">
 				Supports images ({folderInfo.supported_image_formats.join(', ')}) and videos ({folderInfo.supported_video_formats.join(', ')})
 			</p>
-			<p class="text-xs text-gray-400 mt-2">Max file size: {folderInfo.max_upload_size_mb}MB</p>
-		</div>
+			<p class="text-xs text-gray-400 mt-2 pointer-events-none">Max file size: {folderInfo.max_upload_size_mb}MB</p>
+		</label>
 
 		<!-- File List -->
 		{#if files.length > 0}
-			<div class="mt-8 space-y-3">
-				<div class="flex justify-between items-center">
-					<h2 class="text-lg font-semibold">{files.length} file(s)</h2>
-					{#if uploadComplete && successCount > 0 && folderInfo.nextcloud_share_url}
-						<a href={folderInfo.nextcloud_share_url} target="_blank" rel="noopener" class="btn btn-primary">
-							View All Photos →
-						</a>
-					{/if}
+			<div class="mt-6 space-y-2">
+				<!-- Header with filters -->
+				<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
+					<div class="flex items-center gap-3">
+						<h2 class="text-lg font-semibold">{files.length} file(s)</h2>
+						{#if hasCompletedFiles}
+							<div class="flex gap-1 text-xs">
+								<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700">{successCount} ✓</span>
+								{#if errorCount > 0}
+									<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700">{errorCount} ✗</span>
+								{/if}
+							</div>
+						{/if}
+					</div>
+					<div class="flex gap-2 items-center flex-wrap">
+						<!-- Search -->
+						<input 
+							type="text" 
+							placeholder="Search files..." 
+							bind:value={searchQuery}
+							class="text-sm px-2 py-1 border rounded-md w-32 focus:outline-none focus:ring-1 focus:ring-primary-500"
+						/>
+						<!-- Filter buttons -->
+						{#if hasCompletedFiles || activeFiles.length > 0}
+							<div class="flex text-xs border rounded-md overflow-hidden">
+								<button 
+									class="px-2 py-1 transition-colors {filterStatus === 'all' ? 'bg-primary-500 text-white' : 'bg-white hover:bg-gray-100'}"
+									on:click={() => filterStatus = 'all'}
+								>All</button>
+								<button 
+									class="px-2 py-1 transition-colors {filterStatus === 'active' ? 'bg-blue-500 text-white' : 'bg-white hover:bg-gray-100'}"
+									on:click={() => filterStatus = 'active'}
+								>⏳</button>
+								<button 
+									class="px-2 py-1 transition-colors {filterStatus === 'success' ? 'bg-green-500 text-white' : 'bg-white hover:bg-gray-100'}"
+									on:click={() => filterStatus = 'success'}
+								>✓</button>
+								<button 
+									class="px-2 py-1 transition-colors {filterStatus === 'error' ? 'bg-red-500 text-white' : 'bg-white hover:bg-gray-100'}"
+									on:click={() => filterStatus = 'error'}
+								>✗</button>
+							</div>
+							<button
+								class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+								on:click={() => showCompletedFiles = !showCompletedFiles}
+							>
+								<svg class="w-3 h-3 transition-transform" class:rotate-180={!showCompletedFiles} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+								{showCompletedFiles ? 'Hide' : 'Show'}
+							</button>
+						{/if}
+						{#if uploadComplete && successCount > 0 && folderInfo.nextcloud_share_url}
+							<a href={folderInfo.nextcloud_share_url} target="_blank" rel="noopener" class="btn btn-primary text-xs py-1 px-2">
+								View Photos →
+							</a>
+						{/if}
+					</div>
 				</div>
 
-				{#each files as file, index}
-					<div class="bg-white rounded-lg shadow p-4">
-						<div class="flex justify-between items-start mb-2">
-							<div class="flex-1 min-w-0">
-								<p class="font-medium truncate">{file.file.name}</p>
-								<p class="text-sm text-gray-500">
-									{formatBytes(file.file.size)}
-									{#if file.result}
-										→ {formatBytes(file.result.converted_size)}
-									{/if}
-								</p>
-							</div>
-							{#if file.status === 'pending'}
-								<button class="text-gray-400 hover:text-gray-600 ml-2" on:click={() => removeFile(index)}>
-									<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-									</svg>
-								</button>
+				<!-- Active files (uploading/processing) - always visible, compact -->
+				{#each filteredActiveFiles as file, index (file.taskId || file.file.name + index)}
+					<div 
+						class="bg-white rounded-lg shadow-sm p-2 flex items-center gap-3"
+						animate:flip={{ duration: 300 }}
+						transition:slide={{ duration: 300 }}
+					>
+						<!-- Status icon -->
+						<div class="flex-shrink-0">
+							{#if file.status === 'uploading' || file.status === 'processing'}
+								<div class="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+							{:else}
+								<div class="w-5 h-5 rounded-full bg-gray-200"></div>
 							{/if}
 						</div>
-
-						<!-- Progress bar -->
-						<div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+						<!-- File info -->
+						<div class="flex-1 min-w-0">
+							<p class="text-sm font-medium truncate" title={file.file.name}>{file.file.name}</p>
+							<div class="flex items-center gap-2 text-xs text-gray-500">
+								<span>{formatBytes(file.file.size)}</span>
+								<span>•</span>
+								<span>{file.status === 'uploading' ? 'Uploading...' : 'Converting...'}</span>
+							</div>
+						</div>
+						<!-- Progress bar (mini) -->
+						<div class="w-16 bg-gray-200 rounded-full h-1.5">
 							<div
-								class={`h-2 rounded-full transition-all duration-300 ${getStatusColor(file.status)}`}
+								class="h-1.5 rounded-full bg-primary-500 transition-all duration-300"
 								style="width: {file.progress}%"
 							></div>
 						</div>
-
-						<p class={`text-sm ${file.status === 'error' ? 'text-red-600' : file.status === 'success' ? 'text-green-600' : 'text-gray-600'}`}>
-							{getStatusText(file)}
-						</p>
+						{#if file.status === 'pending'}
+							<button class="text-gray-400 hover:text-gray-600 p-1" on:click={() => removeFile(files.indexOf(file))}>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+							</button>
+						{/if}
 					</div>
 				{/each}
+
+				<!-- Completed files - collapsible, compact -->
+				{#if showCompletedFiles && filteredCompletedFiles.length > 0}
+					<div transition:slide={{ duration: 300 }} class="space-y-1 pt-2 border-t">
+						<div class="flex items-center justify-between">
+							<span class="text-xs text-gray-400">Completed</span>
+							<button 
+								class="text-xs text-gray-400 hover:text-gray-600"
+								on:click={clearCompletedFiles}
+							>
+								Clear
+							</button>
+						</div>
+						{#each filteredCompletedFiles as file, index (file.taskId || file.file.name + 'completed' + index)}
+							<div 
+								class="bg-white rounded-lg shadow-sm p-2 flex items-center gap-3 opacity-75 hover:opacity-100 transition-opacity"
+								animate:flip={{ duration: 300 }}
+								in:fly={{ y: -10, duration: 200 }}
+								out:fly={{ x: 50, duration: 150 }}
+							>
+								<!-- Status icon -->
+								<div class="flex-shrink-0">
+									{#if file.status === 'success'}
+										<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+										</svg>
+									{:else}
+										<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+										</svg>
+									{/if}
+								</div>
+								<!-- File info -->
+								<div class="flex-1 min-w-0">
+									<p class="text-sm truncate" title={file.file.name}>{file.file.name}</p>
+									<div class="text-xs text-gray-500">
+										{formatBytes(file.file.size)}
+										{#if file.result}
+											→ {formatBytes(file.result.converted_size)}
+										{/if}
+										{#if file.error}
+											<span class="text-red-500 ml-1">{file.error}</span>
+										{/if}
+									</div>
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
 			<!-- Success Message -->

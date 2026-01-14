@@ -52,6 +52,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'social_django.middleware.SocialAuthExceptionMiddleware',
+    'apps.core.middleware.BotProtectionMiddleware',
+
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -81,6 +83,14 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+# Cache configuration (using Redis for rate limiting and bot protection)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
     }
 }
 
@@ -178,11 +188,57 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+# Task result persistence for session recovery
+CELERY_RESULT_EXPIRES = 7 * 24 * 60 * 60  # 7 days
+
+# Worker prefetch - only grab 1 task at a time for better buffering
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Rate limiting for Nextcloud API (avoid 429 errors)
+# - Videos still use individual uploads, rate limited to avoid issues
+# - Images use bulk upload (20 at a time), so no rate limit needed on the batch task
+# - flush_image_batch is rate limited since it makes the actual API call
+CELERY_TASK_ANNOTATIONS = {
+    'apps.uploads.tasks.process_uploaded_file': {
+        'rate_limit': '6/m',  # 6 videos per minute max
+    },
+    'apps.uploads.tasks.flush_image_batch': {
+        'rate_limit': '2/m',  # 2 batch uploads per minute (40 images/min)
+    },
+}
+
+# Acknowledgment settings - only ack after task completes
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+
+# Priority queues: photos processed before videos
+CELERY_TASK_QUEUES = {
+    'high': {'exchange': 'high', 'routing_key': 'high'},
+    'default': {'exchange': 'default', 'routing_key': 'default'},
+    'low': {'exchange': 'low', 'routing_key': 'low'},
+}
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_ROUTES = {
+    'apps.uploads.tasks.process_uploaded_file': {
+        'queue': 'low',  # Videos on low priority
+    },
+    'apps.uploads.tasks.process_image_for_batch': {
+        'queue': 'high',  # Image conversion on high priority
+    },
+    'apps.uploads.tasks.flush_image_batch': {
+        'queue': 'default',  # Batch upload on default
+    },
+}
+
 # Celery Beat schedule for periodic tasks
 CELERY_BEAT_SCHEDULE = {
     'cleanup-temp-files': {
         'task': 'apps.uploads.tasks.cleanup_temp_files',
         'schedule': 3600.0,  # Every hour
+    },
+    'anonymize-old-ip-addresses': {
+        'task': 'apps.uploads.tasks.anonymize_old_ip_addresses',
+        'schedule': 86400.0,  # Every 24 hours (GDPR compliance)
     },
 }
 
@@ -193,6 +249,8 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE
 FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE
 TEMP_UPLOAD_DIR = Path(
     os.getenv('TEMP_UPLOAD_DIR', '/tmp/photo_import_uploads'))
+# Ensure the temp upload directory exists
+TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_FILE_MAX_AGE_HOURS = int(os.getenv('TEMP_FILE_MAX_AGE_HOURS', '24'))
 
 # Conversion settings

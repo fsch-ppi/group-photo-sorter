@@ -2,14 +2,22 @@
 Nextcloud API client for folder and file operations.
 """
 
+import hashlib
+import time
+import uuid
 import requests
 from django.conf import settings
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import xml.etree.ElementTree as ET
 
 
 class NextcloudClient:
     """Client for interacting with Nextcloud WebDAV and OCS APIs."""
+
+    # Retry configuration for rate limiting
+    MAX_RETRIES = 5
+    INITIAL_BACKOFF = 2  # seconds
+    MAX_BACKOFF = 60  # seconds
 
     def __init__(self, access_token: str):
         self.base_url = settings.NEXTCLOUD_URL.rstrip('/')
@@ -18,21 +26,75 @@ class NextcloudClient:
             'Authorization': f'Bearer {access_token}',
             'OCS-APIRequest': 'true',
         }
+        self._cached_username = None  # Cache username to reduce API calls
+
+    def _request_with_retry(self, method: str, url: str, **kwargs) -> requests.Response:
+        """
+        Make an HTTP request with exponential backoff retry on rate limiting.
+
+        Args:
+            method: HTTP method (GET, PUT, POST, etc.)
+            url: Request URL
+            **kwargs: Additional arguments to pass to requests
+
+        Returns:
+            Response object
+
+        Raises:
+            requests.RequestException on non-retryable errors after max retries
+        """
+        backoff = self.INITIAL_BACKOFF
+        last_response = None
+
+        for attempt in range(self.MAX_RETRIES):
+            response = requests.request(method, url, **kwargs)
+            last_response = response
+
+            # Check for rate limiting (429) or server overload (503)
+            if response.status_code in [429, 503]:
+                # Check for Retry-After header
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        wait_time = int(retry_after)
+                    except ValueError:
+                        wait_time = backoff
+                else:
+                    wait_time = backoff
+
+                # Cap the wait time
+                wait_time = min(wait_time, self.MAX_BACKOFF)
+
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(wait_time)
+                    backoff = min(backoff * 2, self.MAX_BACKOFF)
+                    continue
+
+            # For all other status codes, return immediately
+            return response
+
+        # Return the last response if all retries exhausted
+        return last_response
 
     @property
     def webdav_url(self) -> str:
         return f"{self.base_url}/remote.php/dav/files"
 
     def _get_username(self) -> Optional[str]:
-        """Get the current user's username."""
+        """Get the current user's username (cached to reduce API calls)."""
+        if self._cached_username:
+            return self._cached_username
+            
         url = f"{self.base_url}/ocs/v2.php/cloud/user"
-        response = requests.get(
+        response = self._request_with_retry(
+            'GET',
             url,
             headers={**self.headers, 'Accept': 'application/json'}
         )
         if response.status_code == 200:
             data = response.json()
-            return data.get('ocs', {}).get('data', {}).get('id')
+            self._cached_username = data.get('ocs', {}).get('data', {}).get('id')
+            return self._cached_username
         return None
 
     def create_folder(self, path: str) -> Dict[str, Any]:
@@ -60,7 +122,7 @@ class NextcloudClient:
             current_path = f"{current_path}/{part}" if current_path else part
             url = f"{self.webdav_url}/{username}/{current_path}"
 
-            response = requests.request(
+            response = self._request_with_retry(
                 'MKCOL',
                 url,
                 headers=self.headers
@@ -94,7 +156,8 @@ class NextcloudClient:
         remote_path = remote_path.lstrip('/')
         url = f"{self.webdav_url}/{username}/{remote_path}"
 
-        response = requests.put(
+        response = self._request_with_retry(
+            'PUT',
             url,
             headers={**self.headers, 'Content-Type': content_type},
             data=file_content
@@ -106,6 +169,104 @@ class NextcloudClient:
         return {
             'success': False,
             'error': f'Failed to upload file: {response.status_code} {response.text}'
+        }
+
+    def bulk_upload(self, files: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Upload multiple files in a single bulk request to Nextcloud.
+        
+        This uses the Nextcloud bulk upload API at /remote.php/dav/bulk
+        to upload many files in one HTTP request, avoiding rate limits.
+
+        Args:
+            files: List of dicts, each containing:
+                - remote_path: Full path including filename
+                - content: File content as bytes
+                - content_type: MIME type (e.g., 'image/jpeg')
+                - mtime: Optional modification time (unix timestamp)
+
+        Returns:
+            Dict with success status and results per file
+        """
+        username = self._get_username()
+        if not username:
+            return {'success': False, 'error': 'Could not determine username'}
+
+        if not files:
+            return {'success': True, 'results': {}}
+
+        # Generate a unique boundary for multipart
+        boundary = f"bulk_upload_{uuid.uuid4().hex}"
+        
+        # Build multipart body
+        body_parts = []
+        
+        for file_info in files:
+            remote_path = file_info['remote_path'].lstrip('/')
+            content = file_info['content']
+            content_type = file_info.get('content_type', 'application/octet-stream')
+            mtime = file_info.get('mtime', int(time.time()))
+            
+            # Calculate MD5 checksum
+            md5_hash = hashlib.md5(content).hexdigest()
+            
+            # Build headers for this part
+            part_headers = [
+                f"--{boundary}",
+                f"X-File-Path: /{username}/{remote_path}",
+                f"X-OC-Mtime: {mtime}",
+                f"X-File-Md5: {md5_hash}",
+                f"Content-Length: {len(content)}",
+                f"Content-Type: {content_type}",
+                "",  # Empty line before content
+            ]
+            
+            body_parts.append("\r\n".join(part_headers).encode('utf-8'))
+            body_parts.append(content)
+            body_parts.append(b"\r\n")
+        
+        # Add closing boundary
+        body_parts.append(f"--{boundary}--\r\n".encode('utf-8'))
+        
+        # Combine all parts
+        body = b"".join(body_parts)
+        
+        # Make the bulk upload request
+        url = f"{self.base_url}/remote.php/dav/bulk"
+        
+        response = self._request_with_retry(
+            'POST',
+            url,
+            headers={
+                **self.headers,
+                'Content-Type': f'multipart/related; boundary={boundary}',
+            },
+            data=body
+        )
+        
+        if response.status_code == 200:
+            try:
+                results = response.json()
+                # Check if all files succeeded
+                all_success = all(
+                    not r.get('error', False) 
+                    for r in results.values()
+                )
+                return {
+                    'success': all_success,
+                    'results': results,
+                    'uploaded_count': len([r for r in results.values() if not r.get('error')])
+                }
+            except Exception as e:
+                return {
+                    'success': True,
+                    'results': {},
+                    'uploaded_count': len(files)
+                }
+        
+        return {
+            'success': False,
+            'error': f'Bulk upload failed: {response.status_code} {response.text}'
         }
 
     def create_public_share(self, path: str, permissions: int = 1) -> Dict[str, Any]:
@@ -122,7 +283,8 @@ class NextcloudClient:
         """
         url = f"{self.base_url}/ocs/v2.php/apps/files_sharing/api/v1/shares"
 
-        response = requests.post(
+        response = self._request_with_retry(
+            'POST',
             url,
             headers={**self.headers, 'Accept': 'application/json'},
             data={
@@ -159,7 +321,8 @@ class NextcloudClient:
         """
         url = f"{self.base_url}/ocs/v2.php/apps/files_sharing/api/v1/shares/{share_id}"
 
-        response = requests.delete(
+        response = self._request_with_retry(
+            'DELETE',
             url,
             headers={**self.headers, 'Accept': 'application/json'}
         )
@@ -184,7 +347,8 @@ class NextcloudClient:
         """
         url = f"{self.base_url}/ocs/v2.php/apps/files_sharing/api/v1/shares"
 
-        response = requests.get(
+        response = self._request_with_retry(
+            'GET',
             url,
             headers={**self.headers, 'Accept': 'application/json'},
             params={'path': f'/{path.lstrip("/")}'}
@@ -212,7 +376,7 @@ class NextcloudClient:
         path = path.lstrip('/')
         url = f"{self.webdav_url}/{username}/{path}"
 
-        response = requests.request(
+        response = self._request_with_retry(
             'PROPFIND',
             url,
             headers={**self.headers, 'Depth': '0'}
@@ -237,7 +401,7 @@ class NextcloudClient:
         path = path.lstrip('/')
         url = f"{self.webdav_url}/{username}/{path}"
 
-        response = requests.request(
+        response = self._request_with_retry(
             'PROPFIND',
             url,
             headers={**self.headers, 'Depth': '1'}
@@ -298,7 +462,7 @@ class NextcloudClient:
             </d:prop>
         </d:propfind>'''
 
-        response = requests.request(
+        response = self._request_with_retry(
             'PROPFIND',
             url,
             headers={**self.headers, 'Depth': 'infinity',
