@@ -201,10 +201,26 @@
 	}
 
 	function addFiles(newFiles: File[]) {
+		// Check if folder info is loaded
+		if (!folderInfo || allFormats.length === 0) {
+			alert('Please wait for the page to finish loading before uploading files.');
+			return;
+		}
+
 		const validFiles = newFiles.filter((file) => {
 			const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-			return allFormats.includes(ext);
+			const isValid = allFormats.includes(ext);
+			if (!isValid) {
+				console.log(`Rejected file ${file.name}: extension ${ext} not in ${allFormats.join(', ')}`);
+			}
+			return isValid;
 		});
+
+		if (validFiles.length === 0 && newFiles.length > 0) {
+			const exts = newFiles.map(f => '.' + f.name.split('.').pop()?.toLowerCase()).join(', ');
+			alert(`No valid files found. Supported formats: ${allFormats.join(', ')}\nYour files: ${exts}`);
+			return;
+		}
 
 		const oversizedFiles = validFiles.filter(
 			(file) => file.size > (folderInfo?.max_upload_size_mb || 5120) * 1024 * 1024
