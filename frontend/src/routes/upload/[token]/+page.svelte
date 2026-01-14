@@ -7,6 +7,7 @@
 
 	interface FileUpload {
 		file: File;
+		id: string; // Stable ID for keying
 		status: 'pending' | 'uploading' | 'processing' | 'success' | 'error';
 		progress: number;
 		taskId?: string;
@@ -33,6 +34,12 @@
 	let sessionId: string | null = null;
 	let filterStatus: 'all' | 'active' | 'success' | 'error' = 'all';
 	let searchQuery = '';
+	let uploadIdCounter = 0;
+
+	// Generate stable ID for file uploads
+	function generateUploadId(): string {
+		return `upload_${Date.now()}_${++uploadIdCounter}`;
+	}
 
 	// Get shareToken directly from page store to avoid timing issues
 	$: shareToken = $page.params.token;
@@ -109,6 +116,7 @@
 	function saveSessionState() {
 		if (!sessionId) return;
 		const state = files.map(f => ({
+			id: f.id,
 			name: f.file.name,
 			size: f.file.size,
 			status: f.status,
@@ -119,7 +127,7 @@
 		localStorage.setItem(`upload_session_${shareToken}_${sessionId}`, JSON.stringify(state));
 	}
 
-	function loadSessionState(token: string): { name: string; size: number; status: string; taskId?: string; error?: string; result?: any }[] | null {
+	function loadSessionState(token: string): { id?: string; name: string; size: number; status: string; taskId?: string; error?: string; result?: any }[] | null {
 		if (!sessionId) return null;
 		const stored = localStorage.getItem(`upload_session_${token}_${sessionId}`);
 		if (!stored) return null;
@@ -155,12 +163,14 @@
 			if (savedState && savedState.length > 0) {
 				// Restore completed/processing files from session
 				for (const item of savedState) {
+					const itemId = item.id || generateUploadId();
 					if (item.status === 'success' || item.status === 'error') {
 						// Create a placeholder file object for completed uploads
 						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
 						Object.defineProperty(placeholderFile, 'size', { value: item.size });
 						
 						files = [...files, {
+							id: itemId,
 							file: placeholderFile,
 							status: item.status as FileUpload['status'],
 							progress: item.status === 'success' ? 100 : 0,
@@ -174,6 +184,7 @@
 						Object.defineProperty(placeholderFile, 'size', { value: item.size });
 						
 						const fileUpload: FileUpload = {
+							id: itemId,
 							file: placeholderFile,
 							status: 'processing',
 							progress: 50,
@@ -273,6 +284,7 @@
 		);
 
 		const newUploads: FileUpload[] = okFiles.map((file) => ({
+			id: generateUploadId(),
 			file,
 			status: 'pending',
 			progress: 0
@@ -280,82 +292,95 @@
 
 		files = [...files, ...newUploads];
 
-		// Start uploading
-		okFiles.forEach((_, index) => {
-			uploadFile(files.length - okFiles.length + index);
+		// Start uploading - use the stable IDs
+		newUploads.forEach((upload) => {
+			uploadFileById(upload.id);
 		});
 	}
 
-	async function uploadFile(index: number) {
+	// Find file index by stable ID
+	function findFileIndex(id: string): number {
+		return files.findIndex(f => f.id === id);
+	}
+
+	// Update a file by ID without triggering full re-render
+	function updateFile(id: string, updates: Partial<FileUpload>) {
+		const index = findFileIndex(id);
+		if (index === -1) return;
+		files[index] = { ...files[index], ...updates };
+		files = files; // Trigger reactivity
+	}
+
+	async function uploadFileById(id: string) {
+		const index = findFileIndex(id);
+		if (index === -1) return;
+		
 		const fileUpload = files[index];
-		files[index] = { ...fileUpload, status: 'uploading', progress: 10 };
-		files = files;
+		updateFile(id, { status: 'uploading', progress: 10 });
 		saveSessionState();
 
 		try {
 			const result = await upload.uploadFile(shareToken, fileUpload.file);
-			files[index] = {
-				...files[index],
+			updateFile(id, {
 				status: 'processing',
 				progress: 50,
 				taskId: result.task_id
-			};
-			files = files;
+			});
 			saveSessionState();
 
 			// Poll for task completion
-			pollTaskStatus(index, result.task_id);
+			pollTaskStatusById(id, result.task_id);
 		} catch (e) {
-			files[index] = {
-				...files[index],
+			updateFile(id, {
 				status: 'error',
 				error: e instanceof Error ? e.message : 'Upload failed'
-			};
-			files = files;
+			});
 			saveSessionState();
 		}
 	}
 
-	async function pollTaskStatus(index: number, taskId: string) {
+	async function uploadFile(index: number) {
+		const fileUpload = files[index];
+		if (!fileUpload) return;
+		// Redirect to ID-based method
+		uploadFileById(fileUpload.id);
+	}
+
+	async function pollTaskStatusById(id: string, taskId: string) {
 		let attempts = 0;
 		const maxAttempts = 360; // 30 minutes max for large videos
+		let lastProgress = 50;
 
 		while (attempts < maxAttempts) {
+			const index = findFileIndex(id);
+			if (index === -1) return; // File was removed
+			
 			try {
 				const status = await upload.taskStatus(taskId);
 
 				if (status.status === 'SUCCESS' && status.result) {
-					files[index] = {
-						...files[index],
+					updateFile(id, {
 						status: 'success',
 						progress: 100,
 						result: status.result
-					};
-					files = files;
+					});
 					saveSessionState();
-					
-					// Auto-hide completed files after a short delay when new files complete
-					if (activeFiles.length > 0) {
-						setTimeout(() => {
-							showCompletedFiles = false;
-						}, 2000);
-					}
 					return;
 				} else if (status.status === 'FAILURE') {
-					files[index] = {
-						...files[index],
+					updateFile(id, {
 						status: 'error',
 						error: status.error || 'Processing failed'
-					};
-					files = files;
+					});
 					saveSessionState();
 					return;
 				}
 
-				// Update progress estimate
-				const progressEstimate = Math.min(50 + attempts, 95);
-				files[index] = { ...files[index], progress: progressEstimate };
-				files = files;
+				// Update progress estimate (less frequently to reduce re-renders)
+				const progressEstimate = Math.min(50 + Math.floor(attempts / 2), 95);
+				if (progressEstimate !== lastProgress) {
+					lastProgress = progressEstimate;
+					updateFile(id, { progress: progressEstimate });
+				}
 			} catch (e) {
 				console.error('Failed to check task status:', e);
 			}
@@ -364,13 +389,17 @@
 			await new Promise((resolve) => setTimeout(resolve, 5000));
 		}
 
-		files[index] = {
-			...files[index],
+		updateFile(id, {
 			status: 'error',
 			error: 'Processing timed out'
-		};
-		files = files;
+		});
 		saveSessionState();
+	}
+
+	async function pollTaskStatus(index: number, taskId: string) {
+		const file = files[index];
+		if (!file) return;
+		pollTaskStatusById(file.id, taskId);
 	}
 
 	function removeFile(index: number) {
@@ -378,10 +407,47 @@
 		saveSessionState();
 	}
 
+	function removeFileById(id: string) {
+		files = files.filter(f => f.id !== id);
+		saveSessionState();
+	}
+
 	function clearCompletedFiles() {
 		files = files.filter((f) => f.status !== 'success' && f.status !== 'error');
 		saveSessionState();
 	}
+
+	// Retry failed files
+	function retryFile(id: string) {
+		const index = findFileIndex(id);
+		if (index === -1) return;
+		
+		const fileUpload = files[index];
+		// Only retry if we have the actual file (not a placeholder from session restore)
+		if (fileUpload.file.size === 0) {
+			// Can't retry placeholder files - remove and ask to re-upload
+			alert('Cannot retry this file. Please upload it again.');
+			return;
+		}
+		
+		// Reset the file status and re-upload
+		updateFile(id, {
+			status: 'pending',
+			progress: 0,
+			error: undefined,
+			taskId: undefined
+		});
+		uploadFileById(id);
+	}
+
+	function retryAllFailed() {
+		const failedFiles = files.filter(f => f.status === 'error' && f.file.size > 0);
+		failedFiles.forEach(f => retryFile(f.id));
+	}
+
+	// Check if there are retryable failed files
+	$: retryableErrors = files.filter(f => f.status === 'error' && f.file.size > 0);
+	$: hasRetryableErrors = retryableErrors.length > 0;
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -541,11 +607,9 @@
 				</div>
 
 				<!-- Active files (uploading/processing) - always visible, compact -->
-				{#each filteredActiveFiles as file, index (file.taskId || file.file.name + index)}
+				{#each filteredActiveFiles as file (file.id)}
 					<div 
 						class="bg-white rounded-lg shadow-sm p-2 flex items-center gap-3"
-						animate:flip={{ duration: 300 }}
-						transition:slide={{ duration: 300 }}
 					>
 						<!-- Status icon -->
 						<div class="flex-shrink-0">
@@ -572,7 +636,7 @@
 							></div>
 						</div>
 						{#if file.status === 'pending'}
-							<button class="text-gray-400 hover:text-gray-600 p-1" on:click={() => removeFile(files.indexOf(file))}>
+							<button class="text-gray-400 hover:text-gray-600 p-1" on:click={() => removeFileById(file.id)}>
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 								</svg>
@@ -583,22 +647,29 @@
 
 				<!-- Completed files - collapsible, compact -->
 				{#if showCompletedFiles && filteredCompletedFiles.length > 0}
-					<div transition:slide={{ duration: 300 }} class="space-y-1 pt-2 border-t">
+					<div class="space-y-1 pt-2 border-t">
 						<div class="flex items-center justify-between">
 							<span class="text-xs text-gray-400">Completed</span>
-							<button 
-								class="text-xs text-gray-400 hover:text-gray-600"
-								on:click={clearCompletedFiles}
-							>
-								Clear
-							</button>
+							<div class="flex gap-2">
+								{#if hasRetryableErrors}
+									<button 
+										class="text-xs text-orange-500 hover:text-orange-700 font-medium"
+										on:click={retryAllFailed}
+									>
+										Retry All Failed ({retryableErrors.length})
+									</button>
+								{/if}
+								<button 
+									class="text-xs text-gray-400 hover:text-gray-600"
+									on:click={clearCompletedFiles}
+								>
+									Clear
+								</button>
+							</div>
 						</div>
-						{#each filteredCompletedFiles as file, index (file.taskId || file.file.name + 'completed' + index)}
+						{#each filteredCompletedFiles as file (file.id)}
 							<div 
 								class="bg-white rounded-lg shadow-sm p-2 flex items-center gap-3 opacity-75 hover:opacity-100 transition-opacity"
-								animate:flip={{ duration: 300 }}
-								in:fly={{ y: -10, duration: 200 }}
-								out:fly={{ x: 50, duration: 150 }}
 							>
 								<!-- Status icon -->
 								<div class="flex-shrink-0">
@@ -625,6 +696,21 @@
 										{/if}
 									</div>
 								</div>
+								<!-- Retry button for failed files -->
+								{#if file.status === 'error' && file.file.size > 0}
+									<button 
+										class="text-xs text-orange-500 hover:text-orange-700 px-2 py-1 rounded border border-orange-300 hover:bg-orange-50"
+										on:click={() => retryFile(file.id)}
+									>
+										Retry
+									</button>
+								{/if}
+								<!-- Remove button -->
+								<button class="text-gray-400 hover:text-gray-600 p-1" on:click={() => removeFileById(file.id)}>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
 							</div>
 						{/each}
 					</div>
