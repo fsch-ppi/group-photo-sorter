@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from celery import shared_task
 from django.conf import settings
-from django.utils import timezone
 
 from apps.folders.models import PhotoFolder, UploadStatistics
 from apps.folders.nextcloud_client import NextcloudClient
@@ -19,10 +18,6 @@ from .converters import (
     generate_filename,
     get_unique_filename
 )
-
-
-# GDPR: IP address retention period
-IP_RETENTION_DAYS = 30
 
 
 @shared_task
@@ -55,36 +50,6 @@ def cleanup_temp_files():
                 print(f"Failed to clean up {filepath}: {e}")
 
     return {'cleaned': cleaned_count, 'max_age_hours': max_age_hours}
-
-
-@shared_task
-def anonymize_old_ip_addresses():
-    """
-    GDPR compliance: Anonymize IP addresses older than 30 days.
-
-    This task runs daily and replaces real IP addresses with
-    anonymized versions (e.g., "192.168.1.100" -> "xxx.xxx.xxx.xxx")
-    for upload statistics older than the retention period.
-    """
-    cutoff_date = timezone.now() - timedelta(days=IP_RETENTION_DAYS)
-
-    # Find all records with non-anonymized IPs older than retention period
-    old_records = UploadStatistics.objects.filter(
-        uploaded_at__lt=cutoff_date
-    ).exclude(
-        uploader_ip='xxx.xxx.xxx.xxx'
-    )
-
-    count = old_records.count()
-
-    # Anonymize the IP addresses
-    old_records.update(uploader_ip='xxx.xxx.xxx.xxx')
-
-    return {
-        'anonymized_count': count,
-        'retention_days': IP_RETENTION_DAYS,
-        'cutoff_date': cutoff_date.isoformat(),
-    }
 
 
 @shared_task(bind=True, max_retries=3)

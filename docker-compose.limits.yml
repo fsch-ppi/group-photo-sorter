@@ -1,53 +1,17 @@
-# Resource limits overlay for Raspberry Pi / low-memory systems
+# Optional resource limits for Celery workers
 # Use with: docker compose -f docker-compose.yml -f docker-compose.limits.yml up -d
 #
 # Configure limits via environment variables:
 #   CELERY_CPU_LIMIT - CPU limit (e.g., "2" for 2 cores)
-#   CELERY_MEMORY_LIMIT - Memory limit (e.g., "1G" for 1 gigabyte)
-#   BACKEND_MEMORY_LIMIT - Backend memory limit (e.g., "512M")
-#   REDIS_MEMORY_LIMIT - Redis memory limit (e.g., "256M")
+#   CELERY_MEMORY_LIMIT - Memory limit (e.g., "2G" for 2 gigabytes)
 
 services:
-  redis:
-    deploy:
-      resources:
-        limits:
-          cpus: '${REDIS_CPU_LIMIT:-0.5}'
-          memory: ${REDIS_MEMORY_LIMIT:-256M}
-        reservations:
-          cpus: '0.1'
-          memory: 256M
-    # Enable Redis persistence for task recovery after crashes
-    command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
-
-  backend:
-    deploy:
-      resources:
-        limits:
-          cpus: '${BACKEND_CPU_LIMIT:-1}'
-          memory: ${BACKEND_MEMORY_LIMIT:-512M}
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-
   celery:
     deploy:
       resources:
         limits:
           cpus: '${CELERY_CPU_LIMIT:-2}'
-          memory: ${CELERY_MEMORY_LIMIT:-256M}
+          memory: ${CELERY_MEMORY_LIMIT:-2G}
         reservations:
           cpus: '0.5'
-          memory: 256M
-    # Limit concurrent tasks to prevent memory exhaustion
-    command: celery -A config worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-1}
-
-  celery-beat:
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
+          memory: 512M

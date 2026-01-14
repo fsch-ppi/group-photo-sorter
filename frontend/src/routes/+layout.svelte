@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { auth, type User } from '$lib/api';
 	import { onMount } from 'svelte';
-	import CookieConsent from '$lib/CookieConsent.svelte';
 	import '../app.css';
 
 	let user: User | null = null;
@@ -78,12 +77,8 @@
 	<footer class="bg-white border-t mt-auto">
 		<div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
 			<p class="text-center text-gray-500 text-sm">
-				Photo Import Sorter &copy; {new Date().getFullYear()} · 
-				<a href="/api/auth/privacy/" target="_blank" class="hover:underline">Privacy Policy</a>
+				Photo Import Sorter &copy; {new Date().getFullYear()}
 			</p>
 		</div>
 	</footer>
-
-	<!-- Cookie Consent Banner -->
-	<CookieConsent />
 </div>

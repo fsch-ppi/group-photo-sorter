@@ -1,24 +1,11 @@
 <script lang="ts">
 	import { folders, type PhotoFolder, type NamingFormat } from '$lib/api';
 	import { onMount } from 'svelte';
-	import { fly } from 'svelte/transition';
 
 	let folderList: PhotoFolder[] = [];
 	let namingFormats: NamingFormat[] = [];
 	let loading = true;
 	let error = '';
-
-	// Toast notification state
-	let toast = { show: false, message: '', type: 'success' as 'success' | 'error' };
-	let toastTimeout: ReturnType<typeof setTimeout> | null = null;
-
-	function showToast(message: string, type: 'success' | 'error' = 'success') {
-		if (toastTimeout) clearTimeout(toastTimeout);
-		toast = { show: true, message, type };
-		toastTimeout = setTimeout(() => {
-			toast = { ...toast, show: false };
-		}, 3000);
-	}
 
 	// Modal state
 	let showCreateModal = false;
@@ -104,10 +91,8 @@
 		try {
 			const result = await folders.regenerateToken(selectedFolder.id);
 			selectedFolder = { ...selectedFolder, share_token: result.share_token, upload_url: result.upload_url };
-			showToast('Upload link regenerated');
 		} catch (e) {
 			console.error('Failed to regenerate token:', e);
-			showToast('Failed to regenerate link', 'error');
 		}
 	}
 
@@ -120,10 +105,8 @@
 				nextcloud_share_token: result.nextcloud_share_token,
 				nextcloud_share_url: result.nextcloud_share_url
 			};
-			showToast('Nextcloud share link regenerated');
 		} catch (e) {
 			console.error('Failed to regenerate Nextcloud share:', e);
-			showToast('Failed to regenerate share link', 'error');
 		}
 	}
 
@@ -133,10 +116,8 @@
 			const updated = await folders.update(selectedFolder.id, { is_active: !selectedFolder.is_active });
 			selectedFolder = updated;
 			folderList = folderList.map((f) => (f.id === updated.id ? updated : f));
-			showToast(updated.is_active ? 'Uploads enabled' : 'Uploads paused');
 		} catch (e) {
 			console.error('Failed to toggle active:', e);
-			showToast('Failed to update status', 'error');
 		}
 	}
 
@@ -146,10 +127,10 @@
 			const updated = await folders.update(selectedFolder.id, { storage_limit_gb: selectedFolder.storage_limit_gb });
 			selectedFolder = updated;
 			folderList = folderList.map((f) => (f.id === updated.id ? updated : f));
-			showToast('Storage limit updated');
 		} catch (e) {
 			console.error('Failed to update storage limit:', e);
-			showToast('Failed to update storage limit', 'error');
+		}
+	}
 		}
 	}
 
@@ -164,16 +145,13 @@
 			folderList = folderList.filter((f) => f.id !== folderId);
 			showDetailModal = false;
 			selectedFolder = null;
-			showToast('Folder deleted');
 		} catch (e) {
 			console.error('Failed to delete folder:', e);
-			showToast('Failed to delete folder', 'error');
 		}
 	}
 
 	function copyToClipboard(text: string) {
 		navigator.clipboard.writeText(text);
-		showToast('Copied to clipboard');
 	}
 
 	function formatBytes(bytes: number): string {
@@ -188,31 +166,6 @@
 <svelte:head>
 	<title>Dashboard - Photo Import Sorter</title>
 </svelte:head>
-
-<!-- Toast Notification -->
-{#if toast.show}
-	<div 
-		class="fixed top-4 right-4 z-50"
-		transition:fly={{ y: -20, duration: 300 }}
-	>
-		<div class={`px-4 py-3 rounded-lg shadow-lg flex items-center space-x-3 ${
-			toast.type === 'success' 
-				? 'bg-green-600 text-white' 
-				: 'bg-red-600 text-white'
-		}`}>
-			{#if toast.type === 'success'}
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-				</svg>
-			{:else}
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-				</svg>
-			{/if}
-			<span class="font-medium">{toast.message}</span>
-		</div>
-	</div>
-{/if}
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 	<div class="flex justify-between items-center mb-8">
