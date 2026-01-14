@@ -51,9 +51,11 @@
 	$: hasCompletedFiles = completedFiles.length > 0;
 
 	// Filtered files based on status and search
-	$: filteredActiveFiles = activeFiles.filter(f => 
-		(searchQuery === '' || f.file.name.toLowerCase().includes(searchQuery.toLowerCase()))
-	);
+	$: filteredActiveFiles = activeFiles.filter(f => {
+		const matchesSearch = searchQuery === '' || f.file.name.toLowerCase().includes(searchQuery.toLowerCase());
+		const matchesFilter = filterStatus === 'all' || filterStatus === 'active';
+		return matchesSearch && matchesFilter;
+	});
 	$: filteredCompletedFiles = completedFiles.filter(f => {
 		const matchesSearch = searchQuery === '' || f.file.name.toLowerCase().includes(searchQuery.toLowerCase());
 		const matchesFilter = filterStatus === 'all' || 
@@ -471,12 +473,16 @@
 							class="text-sm px-2 py-1 border rounded-md w-32 focus:outline-none focus:ring-1 focus:ring-primary-500"
 						/>
 						<!-- Filter buttons -->
-						{#if hasCompletedFiles}
+						{#if hasCompletedFiles || activeFiles.length > 0}
 							<div class="flex text-xs border rounded-md overflow-hidden">
 								<button 
 									class="px-2 py-1 transition-colors {filterStatus === 'all' ? 'bg-primary-500 text-white' : 'bg-white hover:bg-gray-100'}"
 									on:click={() => filterStatus = 'all'}
 								>All</button>
+								<button 
+									class="px-2 py-1 transition-colors {filterStatus === 'active' ? 'bg-blue-500 text-white' : 'bg-white hover:bg-gray-100'}"
+									on:click={() => filterStatus = 'active'}
+								>⏳</button>
 								<button 
 									class="px-2 py-1 transition-colors {filterStatus === 'success' ? 'bg-green-500 text-white' : 'bg-white hover:bg-gray-100'}"
 									on:click={() => filterStatus = 'success'}

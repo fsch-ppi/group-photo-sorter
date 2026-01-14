@@ -1,12 +1,10 @@
 """
-Bot protection and rate limiting middleware.
+Bot protection middleware.
+
+Note: Rate limiting has been disabled.
 """
 
 import re
-import hashlib
-from django.http import HttpResponseForbidden, JsonResponse
-from django.core.cache import cache
-from django.conf import settings
 
 
 # Known bot user agents to block
@@ -52,8 +50,9 @@ class BotProtectionMiddleware:
 
     Features:
     - Blocks known bot user agents
-    - Rate limits by IP address
     - Checks for missing or suspicious headers
+
+    Note: Rate limiting is disabled.
     """
 
     def __init__(self, get_response):
@@ -69,63 +68,5 @@ class BotProtectionMiddleware:
             if request.path.startswith(prefix):
                 return self.get_response(request)
 
-        # Get client IP
-        ip = self._get_client_ip(request)
-
-        # Check if IP is blocked
-        if self._is_ip_blocked(ip):
-            return JsonResponse(
-                {'error': 'Too many requests. Please try again later.'},
-                status=429
-            )
-
-        # Check for bot user agent (but allow API access without user agent)
-        user_agent = request.META.get('HTTP_USER_AGENT', '')
-        if user_agent and BOT_PATTERN.search(user_agent):
-            self._increment_suspicious_count(ip)
-            return JsonResponse(
-                {'error': 'Automated access is not permitted.'},
-                status=403
-            )
-
-        # Check for honeypot field in POST requests (bot trap)
-        if request.method == 'POST':
-            # If a hidden honeypot field is filled, it's likely a bot
-            honeypot = request.POST.get(
-                'website_url_hp', '') or request.POST.get('email_confirm_hp', '')
-            if honeypot:
-                self._block_ip(ip, duration=3600)  # Block for 1 hour
-                return JsonResponse(
-                    {'error': 'Request rejected.'},
-                    status=403
-                )
-
+        # Rate limiting disabled - pass all requests through
         return self.get_response(request)
-
-    def _get_client_ip(self, request):
-        """Extract client IP from request."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            return x_forwarded_for.split(',')[0].strip()
-        return request.META.get('REMOTE_ADDR', '0.0.0.0')
-
-    def _is_ip_blocked(self, ip):
-        """Check if IP is temporarily blocked."""
-        cache_key = f'blocked_ip_{hashlib.md5(ip.encode()).hexdigest()}'
-        return cache.get(cache_key, False)
-
-    def _block_ip(self, ip, duration=3600):
-        """Temporarily block an IP address."""
-        cache_key = f'blocked_ip_{hashlib.md5(ip.encode()).hexdigest()}'
-        cache.set(cache_key, True, duration)
-
-    def _increment_suspicious_count(self, ip):
-        """Track suspicious activity and block if threshold exceeded."""
-        cache_key = f'suspicious_count_{hashlib.md5(ip.encode()).hexdigest()}'
-        count = cache.get(cache_key, 0) + 1
-        cache.set(cache_key, count, 3600)  # Reset after 1 hour
-
-        if count >= 10:  # Block after 10 suspicious requests
-            self._block_ip(ip, duration=3600)
-
-        return True
