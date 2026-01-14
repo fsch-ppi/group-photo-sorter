@@ -295,6 +295,8 @@ def generate_filename(
         base_name = f"{event}_{date_full}"
     elif folder.naming_format == NamingFormat.DATE_ONLY:
         base_name = date_full
+    elif folder.naming_format == NamingFormat.DATE_DAY_ONLY:
+        base_name = date_day
     elif folder.naming_format == NamingFormat.DATE_DAY_EVENT:
         base_name = f"{date_day}_{event}"
     elif folder.naming_format == NamingFormat.EVENT_DATE_DAY:

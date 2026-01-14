@@ -20,6 +20,7 @@ class NamingFormat(models.TextChoices):
     DATE_EVENT = 'date_event', 'Date + Event Name (e.g., 2026-01-12_143052_wedding.jpg)'
     EVENT_DATE = 'event_date', 'Event Name + Date (e.g., wedding_2026-01-12_143052.jpg)'
     DATE_ONLY = 'date_only', 'Date Only (e.g., 2026-01-12_143052.jpg)'
+    DATE_DAY_ONLY = 'date_day_only', 'Date Only - Day (e.g., 2026-01-12.jpg)'
     DATE_DAY_EVENT = 'date_day_event', 'Date (Day) + Event Name (e.g., 2026-01-12_wedding.jpg)'
     EVENT_DATE_DAY = 'event_date_day', 'Event Name + Date (Day) (e.g., wedding_2026-01-12.jpg)'
     DATE_HOUR_EVENT = 'date_hour_event', 'Date + Hour + Event Name (e.g., 2026-01-12_14_wedding.jpg)'
