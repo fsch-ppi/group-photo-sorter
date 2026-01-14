@@ -53,7 +53,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'social_django.middleware.SocialAuthExceptionMiddleware',
     'apps.core.middleware.BotProtectionMiddleware',
-    'apps.core.middleware.RateLimitMiddleware',
+
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -223,6 +223,8 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE
 FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE
 TEMP_UPLOAD_DIR = Path(
     os.getenv('TEMP_UPLOAD_DIR', '/tmp/photo_import_uploads'))
+# Ensure the temp upload directory exists
+TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_FILE_MAX_AGE_HOURS = int(os.getenv('TEMP_FILE_MAX_AGE_HOURS', '24'))
 
 # Conversion settings

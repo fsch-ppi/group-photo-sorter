@@ -16,7 +16,7 @@ services:
           memory: ${REDIS_MEMORY_LIMIT:-256M}
         reservations:
           cpus: '0.1'
-          memory: 64M
+          memory: 256M
     # Enable Redis persistence for task recovery after crashes
     command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
 
@@ -28,14 +28,14 @@ services:
           memory: ${BACKEND_MEMORY_LIMIT:-512M}
         reservations:
           cpus: '0.25'
-          memory: 128M
+          memory: 256M
 
   celery:
     deploy:
       resources:
         limits:
           cpus: '${CELERY_CPU_LIMIT:-2}'
-          memory: ${CELERY_MEMORY_LIMIT:-1G}
+          memory: ${CELERY_MEMORY_LIMIT:-256M}
         reservations:
           cpus: '0.5'
           memory: 256M
@@ -47,7 +47,7 @@ services:
       resources:
         limits:
           cpus: '0.25'
-          memory: 128M
+          memory: 256M
         reservations:
           cpus: '0.1'
-          memory: 64M
+          memory: 256M
