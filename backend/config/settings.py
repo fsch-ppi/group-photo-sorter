@@ -191,6 +191,21 @@ CELERY_TIMEZONE = TIME_ZONE
 # Task result persistence for session recovery
 CELERY_RESULT_EXPIRES = 7 * 24 * 60 * 60  # 7 days
 
+# Worker prefetch - only grab 1 task at a time for better buffering
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Rate limiting for Nextcloud API (avoid 429 errors)
+# Process max 20 files per minute to stay under Nextcloud's rate limit
+CELERY_TASK_ANNOTATIONS = {
+    'apps.uploads.tasks.process_uploaded_file': {
+        'rate_limit': '20/m',  # 20 tasks per minute max
+    },
+}
+
+# Acknowledgment settings - only ack after task completes
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+
 # Priority queues: photos processed before videos
 CELERY_TASK_QUEUES = {
     'high': {'exchange': 'high', 'routing_key': 'high'},

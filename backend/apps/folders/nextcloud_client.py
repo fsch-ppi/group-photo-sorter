@@ -2,6 +2,7 @@
 Nextcloud API client for folder and file operations.
 """
 
+import time
 import requests
 from django.conf import settings
 from typing import Optional, Dict, Any
@@ -11,6 +12,11 @@ import xml.etree.ElementTree as ET
 class NextcloudClient:
     """Client for interacting with Nextcloud WebDAV and OCS APIs."""
 
+    # Retry configuration for rate limiting
+    MAX_RETRIES = 5
+    INITIAL_BACKOFF = 2  # seconds
+    MAX_BACKOFF = 60  # seconds
+
     def __init__(self, access_token: str):
         self.base_url = settings.NEXTCLOUD_URL.rstrip('/')
         self.access_token = access_token
@@ -19,6 +25,54 @@ class NextcloudClient:
             'OCS-APIRequest': 'true',
         }
 
+    def _request_with_retry(self, method: str, url: str, **kwargs) -> requests.Response:
+        """
+        Make an HTTP request with exponential backoff retry on rate limiting.
+
+        Args:
+            method: HTTP method (GET, PUT, POST, etc.)
+            url: Request URL
+            **kwargs: Additional arguments to pass to requests
+
+        Returns:
+            Response object
+
+        Raises:
+            requests.RequestException on non-retryable errors after max retries
+        """
+        backoff = self.INITIAL_BACKOFF
+        last_response = None
+
+        for attempt in range(self.MAX_RETRIES):
+            response = requests.request(method, url, **kwargs)
+            last_response = response
+
+            # Check for rate limiting (429) or server overload (503)
+            if response.status_code in [429, 503]:
+                # Check for Retry-After header
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        wait_time = int(retry_after)
+                    except ValueError:
+                        wait_time = backoff
+                else:
+                    wait_time = backoff
+
+                # Cap the wait time
+                wait_time = min(wait_time, self.MAX_BACKOFF)
+
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(wait_time)
+                    backoff = min(backoff * 2, self.MAX_BACKOFF)
+                    continue
+
+            # For all other status codes, return immediately
+            return response
+
+        # Return the last response if all retries exhausted
+        return last_response
+
     @property
     def webdav_url(self) -> str:
         return f"{self.base_url}/remote.php/dav/files"
@@ -26,7 +80,8 @@ class NextcloudClient:
     def _get_username(self) -> Optional[str]:
         """Get the current user's username."""
         url = f"{self.base_url}/ocs/v2.php/cloud/user"
-        response = requests.get(
+        response = self._request_with_retry(
+            'GET',
             url,
             headers={**self.headers, 'Accept': 'application/json'}
         )
@@ -60,7 +115,7 @@ class NextcloudClient:
             current_path = f"{current_path}/{part}" if current_path else part
             url = f"{self.webdav_url}/{username}/{current_path}"
 
-            response = requests.request(
+            response = self._request_with_retry(
                 'MKCOL',
                 url,
                 headers=self.headers
@@ -94,7 +149,8 @@ class NextcloudClient:
         remote_path = remote_path.lstrip('/')
         url = f"{self.webdav_url}/{username}/{remote_path}"
 
-        response = requests.put(
+        response = self._request_with_retry(
+            'PUT',
             url,
             headers={**self.headers, 'Content-Type': content_type},
             data=file_content
@@ -122,7 +178,8 @@ class NextcloudClient:
         """
         url = f"{self.base_url}/ocs/v2.php/apps/files_sharing/api/v1/shares"
 
-        response = requests.post(
+        response = self._request_with_retry(
+            'POST',
             url,
             headers={**self.headers, 'Accept': 'application/json'},
             data={
@@ -159,7 +216,8 @@ class NextcloudClient:
         """
         url = f"{self.base_url}/ocs/v2.php/apps/files_sharing/api/v1/shares/{share_id}"
 
-        response = requests.delete(
+        response = self._request_with_retry(
+            'DELETE',
             url,
             headers={**self.headers, 'Accept': 'application/json'}
         )
@@ -184,7 +242,8 @@ class NextcloudClient:
         """
         url = f"{self.base_url}/ocs/v2.php/apps/files_sharing/api/v1/shares"
 
-        response = requests.get(
+        response = self._request_with_retry(
+            'GET',
             url,
             headers={**self.headers, 'Accept': 'application/json'},
             params={'path': f'/{path.lstrip("/")}'}
@@ -212,7 +271,7 @@ class NextcloudClient:
         path = path.lstrip('/')
         url = f"{self.webdav_url}/{username}/{path}"
 
-        response = requests.request(
+        response = self._request_with_retry(
             'PROPFIND',
             url,
             headers={**self.headers, 'Depth': '0'}
@@ -237,7 +296,7 @@ class NextcloudClient:
         path = path.lstrip('/')
         url = f"{self.webdav_url}/{username}/{path}"
 
-        response = requests.request(
+        response = self._request_with_retry(
             'PROPFIND',
             url,
             headers={**self.headers, 'Depth': '1'}
@@ -298,7 +357,7 @@ class NextcloudClient:
             </d:prop>
         </d:propfind>'''
 
-        response = requests.request(
+        response = self._request_with_retry(
             'PROPFIND',
             url,
             headers={**self.headers, 'Depth': 'infinity',
