@@ -172,6 +172,61 @@ class NextcloudClient:
             'error': f'Failed to upload file: {response.status_code} {response.text}'
         }
 
+    def upload_file_streaming(self, remote_path: str, file_path: str, content_type: str = 'application/octet-stream', chunk_size: int = 8 * 1024 * 1024) -> Dict[str, Any]:
+        """
+        Upload a file to Nextcloud by streaming from disk (memory-efficient).
+
+        This is ideal for large files (videos) that shouldn't be loaded entirely into memory.
+
+        Args:
+            remote_path: Full path including filename (e.g., 'Photos/Wedding/video.mp4')
+            file_path: Local path to the file to upload
+            content_type: MIME type of the file
+            chunk_size: Chunk size for streaming (default 8MB)
+
+        Returns:
+            Dict with success status
+        """
+        import os
+
+        username = self._get_username()
+        if not username:
+            return {'success': False, 'error': 'Could not determine username'}
+
+        remote_path = remote_path.lstrip('/')
+        url = f"{self.webdav_url}/{username}/{remote_path}"
+
+        file_size = os.path.getsize(file_path)
+
+        def file_generator():
+            """Generator that yields chunks of the file."""
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        # Use streaming upload with requests
+        response = self._request_with_retry(
+            'PUT',
+            url,
+            headers={
+                **self.headers,
+                'Content-Type': content_type,
+                'Content-Length': str(file_size),
+            },
+            data=file_generator()
+        )
+
+        if response.status_code in [201, 204]:
+            return {'success': True, 'path': remote_path}
+
+        return {
+            'success': False,
+            'error': f'Failed to upload file: {response.status_code} {response.text}'
+        }
+
     def bulk_upload(self, files: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Upload multiple files in a single bulk request to Nextcloud.

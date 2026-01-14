@@ -168,22 +168,26 @@ def convert_image_to_jpeg(
 
 def convert_video_to_mp4(
     input_path: str,
-    crf: int = 23
-) -> Tuple[bytes, Dict[str, Any]]:
+    crf: int = 23,
+    stream_mode: bool = False
+) -> Tuple[Any, Dict[str, Any]]:
     """
     Convert any supported video format to MP4 (H.264).
 
     Args:
         input_path: Path to input video
         crf: Constant Rate Factor for quality (18-28, lower = better)
+        stream_mode: If True, returns file path instead of bytes (for large files)
 
     Returns:
-        Tuple of (mp4_bytes, metadata_dict)
+        Tuple of (mp4_bytes_or_path, metadata_dict)
+        If stream_mode=True, returns (file_path, metadata) - caller must delete the file
+        If stream_mode=False, returns (mp4_bytes, metadata)
     """
     creation_date = get_video_creation_date(input_path)
     original_size = os.path.getsize(input_path)
 
-    # Create temp output file
+    # Create temp output file (don't delete automatically in stream mode)
     with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
         output_path = tmp.name
 
@@ -212,11 +216,7 @@ def convert_video_to_mp4(
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg error: {result.stderr}")
 
-        # Read converted video
-        with open(output_path, 'rb') as f:
-            mp4_bytes = f.read()
-
-        converted_size = len(mp4_bytes)
+        converted_size = os.path.getsize(output_path)
 
         # Get video dimensions
         probe_result = subprocess.run(
@@ -241,7 +241,7 @@ def convert_video_to_mp4(
                     height = stream.get('height', 0)
                     break
 
-        return mp4_bytes, {
+        metadata = {
             'creation_date': creation_date,
             'width': width,
             'height': height,
@@ -249,10 +249,22 @@ def convert_video_to_mp4(
             'converted_size': converted_size,
         }
 
-    finally:
-        # Cleanup temp file
+        if stream_mode:
+            # Return path - caller is responsible for cleanup
+            return output_path, metadata
+        else:
+            # Read converted video into memory
+            with open(output_path, 'rb') as f:
+                mp4_bytes = f.read()
+            # Cleanup temp file
+            os.unlink(output_path)
+            return mp4_bytes, metadata
+
+    except Exception:
+        # Cleanup temp file on error
         if os.path.exists(output_path):
             os.unlink(output_path)
+        raise
 
 
 def generate_filename(

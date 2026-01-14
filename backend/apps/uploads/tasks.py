@@ -326,10 +326,14 @@ def process_uploaded_file(
         client = NextcloudClient(profile.nextcloud_access_token)
 
         # Convert file
+        converted_file_path = None  # Track for cleanup in streaming mode
+
         if is_video:
-            converted_bytes, metadata = convert_video_to_mp4(
+            # Use streaming mode for videos to avoid loading entire file into memory
+            converted_file_path, metadata = convert_video_to_mp4(
                 temp_file_path,
-                crf=settings.VIDEO_CRF
+                crf=settings.VIDEO_CRF,
+                stream_mode=True  # Returns file path instead of bytes
             )
             file_date = metadata.get('creation_date')
             content_type = 'video/mp4'
@@ -354,7 +358,18 @@ def process_uploaded_file(
 
         # Upload to Nextcloud
         remote_path = f"{folder.nextcloud_folder_path}/{unique_filename}"
-        result = client.upload_file(remote_path, converted_bytes, content_type)
+
+        if is_video:
+            # Use streaming upload for videos (memory-efficient)
+            result = client.upload_file_streaming(
+                remote_path, converted_file_path, content_type)
+            # Clean up converted video file
+            if converted_file_path and os.path.exists(converted_file_path):
+                os.unlink(converted_file_path)
+                converted_file_path = None
+        else:
+            result = client.upload_file(
+                remote_path, converted_bytes, content_type)
 
         if not result['success']:
             raise RuntimeError(f"Upload failed: {result.get('error')}")
@@ -389,5 +404,11 @@ def process_uploaded_file(
         if os.path.exists(temp_file_path):
             try:
                 os.unlink(temp_file_path)
+            except Exception:
+                pass
+        # Clean up converted video file if still present (in case of error)
+        if converted_file_path and os.path.exists(converted_file_path):
+            try:
+                os.unlink(converted_file_path)
             except Exception:
                 pass
