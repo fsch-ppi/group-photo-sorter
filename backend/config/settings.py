@@ -52,6 +52,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'social_django.middleware.SocialAuthExceptionMiddleware',
+    'apps.core.middleware.BotProtectionMiddleware',
+    'apps.core.middleware.RateLimitMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -81,6 +83,14 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+# Cache configuration (using Redis for rate limiting and bot protection)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
     }
 }
 
@@ -178,11 +188,31 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+# Task result persistence for session recovery
+CELERY_RESULT_EXPIRES = 7 * 24 * 60 * 60  # 7 days
+
+# Priority queues: photos processed before videos
+CELERY_TASK_QUEUES = {
+    'high': {'exchange': 'high', 'routing_key': 'high'},
+    'default': {'exchange': 'default', 'routing_key': 'default'},
+    'low': {'exchange': 'low', 'routing_key': 'low'},
+}
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_ROUTES = {
+    'apps.uploads.tasks.process_uploaded_file': {
+        'queue': 'default',  # Routing handled dynamically based on file type
+    },
+}
+
 # Celery Beat schedule for periodic tasks
 CELERY_BEAT_SCHEDULE = {
     'cleanup-temp-files': {
         'task': 'apps.uploads.tasks.cleanup_temp_files',
         'schedule': 3600.0,  # Every hour
+    },
+    'anonymize-old-ip-addresses': {
+        'task': 'apps.uploads.tasks.anonymize_old_ip_addresses',
+        'schedule': 86400.0,  # Every 24 hours (GDPR compliance)
     },
 }
 

@@ -150,13 +150,18 @@ def upload_file(request, share_token):
     # Get client IP
     client_ip = get_client_ip(request)
 
-    # Queue processing task
-    task = process_uploaded_file.delay(
-        folder_id=folder.id,
-        temp_file_path=temp_path,
-        original_filename=original_filename,
-        uploader_ip=client_ip,
-        is_video=is_video
+    # Queue processing task - photos get high priority, videos get low priority
+    # This prevents video processing from blocking quick photo uploads
+    queue = 'low' if is_video else 'high'
+    task = process_uploaded_file.apply_async(
+        kwargs={
+            'folder_id': folder.id,
+            'temp_file_path': temp_path,
+            'original_filename': original_filename,
+            'uploader_ip': client_ip,
+            'is_video': is_video
+        },
+        queue=queue
     )
 
     return Response({
