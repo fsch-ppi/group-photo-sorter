@@ -236,12 +236,6 @@
 		}
 	}
 
-	function handleDropZoneClick(e: MouseEvent) {
-		// Prevent double-firing if clicking directly on the input
-		if (e.target === fileInput) return;
-		fileInput.click();
-	}
-
 	function addFiles(newFiles: File[]) {
 		// Check if folder info is loaded
 		if (!folderInfo || allFormats.length === 0) {
@@ -451,10 +445,9 @@
 			<p class="text-gray-600">Upload your photos and videos for {folderInfo.event_name}</p>
 		</div>
 
-		<!-- Drop Zone -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div
-			class={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+		<!-- Drop Zone - using label for reliable file input triggering -->
+		<label
+			class={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
 				isDragOver
 					? 'border-primary-500 bg-primary-50'
 					: 'border-gray-300 hover:border-gray-400'
@@ -462,33 +455,28 @@
 			on:dragover={handleDragOver}
 			on:dragleave={handleDragLeave}
 			on:drop={handleDrop}
-			on:click={handleDropZoneClick}
-			on:keypress={(e) => e.key === 'Enter' && fileInput.click()}
-			role="button"
-			tabindex="0"
 		>
 			<input
 				bind:this={fileInput}
 				type="file"
 				multiple
 				accept={acceptString}
-				class="hidden"
+				class="sr-only"
 				on:change={handleFileSelect}
-				on:click|stopPropagation
 			/>
 
-			<svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			<svg class="w-12 h-12 text-gray-400 mx-auto mb-4 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
 			</svg>
 
-			<p class="text-lg text-gray-700 mb-2">
+			<p class="text-lg text-gray-700 mb-2 pointer-events-none">
 				Drag & drop files here or <span class="text-primary-600 font-medium">browse</span>
 			</p>
-			<p class="text-sm text-gray-500">
+			<p class="text-sm text-gray-500 pointer-events-none">
 				Supports images ({folderInfo.supported_image_formats.join(', ')}) and videos ({folderInfo.supported_video_formats.join(', ')})
 			</p>
-			<p class="text-xs text-gray-400 mt-2">Max file size: {folderInfo.max_upload_size_mb}MB</p>
-		</div>
+			<p class="text-xs text-gray-400 mt-2 pointer-events-none">Max file size: {folderInfo.max_upload_size_mb}MB</p>
+		</label>
 
 		<!-- File List -->
 		{#if files.length > 0}
