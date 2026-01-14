@@ -25,7 +25,6 @@
 	let folderInfo: FolderInfo | null = null;
 	let loading = true;
 	let error = '';
-	let shareToken = '';
 
 	let files: FileUpload[] = [];
 	let isDragOver = false;
@@ -35,6 +34,7 @@
 	let filterStatus: 'all' | 'active' | 'success' | 'error' = 'all';
 	let searchQuery = '';
 
+	// Get shareToken directly from page store to avoid timing issues
 	$: shareToken = $page.params.token;
 	$: allFormats = folderInfo
 		? [...folderInfo.supported_image_formats, ...folderInfo.supported_video_formats]
@@ -65,25 +65,44 @@
 	});
 
 	// Session cookie helpers
-	function getSessionId(): string | null {
+	function getSessionId(token: string): string | null {
 		const cookies = document.cookie.split(';');
 		for (const cookie of cookies) {
 			const [name, value] = cookie.trim().split('=');
-			if (name === `${SESSION_COOKIE_NAME}_${shareToken}`) {
+			if (name === `${SESSION_COOKIE_NAME}_${token}`) {
 				return value;
 			}
 		}
 		return null;
 	}
 
-	function setSessionId(id: string) {
+	function setSessionId(token: string, id: string) {
 		const expires = new Date();
 		expires.setDate(expires.getDate() + SESSION_DURATION_DAYS);
-		document.cookie = `${SESSION_COOKIE_NAME}_${shareToken}=${id}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+		document.cookie = `${SESSION_COOKIE_NAME}_${token}=${id}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
 	}
 
 	function generateSessionId(): string {
-		return crypto.randomUUID();
+		// Prefer crypto.randomUUID() if available (requires secure context)
+		if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+			try {
+				return crypto.randomUUID();
+			} catch {
+				// Fall through to getRandomValues fallback
+			}
+		}
+		// Fallback using crypto.getRandomValues() - cryptographically secure and works in all contexts
+		if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+			const bytes = new Uint8Array(16);
+			crypto.getRandomValues(bytes);
+			// Set version (4) and variant (8, 9, a, or b) bits for valid UUID v4
+			bytes[6] = (bytes[6] & 0x0f) | 0x40;
+			bytes[8] = (bytes[8] & 0x3f) | 0x80;
+			const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+			return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+		}
+		// Last resort: timestamp + random (not secure, but session ID is only for UI state)
+		return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 	}
 
 	// Persist file state to localStorage
@@ -100,9 +119,9 @@
 		localStorage.setItem(`upload_session_${shareToken}_${sessionId}`, JSON.stringify(state));
 	}
 
-	function loadSessionState(): { name: string; size: number; status: string; taskId?: string; error?: string; result?: any }[] | null {
+	function loadSessionState(token: string): { name: string; size: number; status: string; taskId?: string; error?: string; result?: any }[] | null {
 		if (!sessionId) return null;
-		const stored = localStorage.getItem(`upload_session_${shareToken}_${sessionId}`);
+		const stored = localStorage.getItem(`upload_session_${token}_${sessionId}`);
 		if (!stored) return null;
 		try {
 			return JSON.parse(stored);
@@ -112,55 +131,68 @@
 	}
 
 	onMount(async () => {
-		// Get or create session
-		sessionId = getSessionId();
-		if (!sessionId) {
-			sessionId = generateSessionId();
-			setSessionId(sessionId);
+		// Get token directly from page params to avoid timing issues with reactive statements
+		const token = $page.params.token;
+		
+		// Try to set up session management, but don't let it break the upload functionality
+		try {
+			// Get or create session
+			sessionId = getSessionId(token);
+			if (!sessionId) {
+				sessionId = generateSessionId();
+				setSessionId(token, sessionId);
+			}
+		} catch (e) {
+			console.warn('Failed to initialize session:', e);
+			sessionId = null; // Continue without session persistence
 		}
 
 		await loadFolderInfo();
 
 		// Restore session if exists
-		const savedState = loadSessionState();
-		if (savedState && savedState.length > 0) {
-			// Restore completed/processing files from session
-			for (const item of savedState) {
-				if (item.status === 'success' || item.status === 'error') {
-					// Create a placeholder file object for completed uploads
-					const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
-					Object.defineProperty(placeholderFile, 'size', { value: item.size });
-					
-					files = [...files, {
-						file: placeholderFile,
-						status: item.status as FileUpload['status'],
-						progress: item.status === 'success' ? 100 : 0,
-						taskId: item.taskId,
-						error: item.error,
-						result: item.result
-					}];
-				} else if (item.taskId && (item.status === 'processing' || item.status === 'uploading')) {
-					// Check task status for in-progress uploads
-					const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
-					Object.defineProperty(placeholderFile, 'size', { value: item.size });
-					
-					const fileUpload: FileUpload = {
-						file: placeholderFile,
-						status: 'processing',
-						progress: 50,
-						taskId: item.taskId
-					};
-					files = [...files, fileUpload];
-					
-					// Resume polling for this task
-					pollTaskStatus(files.length - 1, item.taskId);
+		try {
+			const savedState = loadSessionState(token);
+			if (savedState && savedState.length > 0) {
+				// Restore completed/processing files from session
+				for (const item of savedState) {
+					if (item.status === 'success' || item.status === 'error') {
+						// Create a placeholder file object for completed uploads
+						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
+						Object.defineProperty(placeholderFile, 'size', { value: item.size });
+						
+						files = [...files, {
+							file: placeholderFile,
+							status: item.status as FileUpload['status'],
+							progress: item.status === 'success' ? 100 : 0,
+							taskId: item.taskId,
+							error: item.error,
+							result: item.result
+						}];
+					} else if (item.taskId && (item.status === 'processing' || item.status === 'uploading')) {
+						// Check task status for in-progress uploads
+						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
+						Object.defineProperty(placeholderFile, 'size', { value: item.size });
+						
+						const fileUpload: FileUpload = {
+							file: placeholderFile,
+							status: 'processing',
+							progress: 50,
+							taskId: item.taskId
+						};
+						files = [...files, fileUpload];
+						
+						// Resume polling for this task
+						pollTaskStatus(files.length - 1, item.taskId);
+					}
+				}
+				
+				// Auto-hide completed files if there are any active ones
+				if (activeFiles.length > 0 && completedFiles.length > 0) {
+					showCompletedFiles = false;
 				}
 			}
-			
-			// Auto-hide completed files if there are any active ones
-			if (activeFiles.length > 0 && completedFiles.length > 0) {
-				showCompletedFiles = false;
-			}
+		} catch (e) {
+			console.warn('Failed to restore session state:', e);
 		}
 	});
 
