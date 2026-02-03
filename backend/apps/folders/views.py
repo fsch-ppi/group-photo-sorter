@@ -39,7 +39,7 @@ class PhotoFolderViewSet(viewsets.ModelViewSet):
         """Get Nextcloud client for the current user."""
         try:
             profile = self.request.user.profile
-            return NextcloudClient(profile.nextcloud_access_token)
+            return NextcloudClient(profile.nextcloud_access_token, user_profile=profile)
         except Exception:
             return None
 

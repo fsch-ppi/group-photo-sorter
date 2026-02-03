@@ -3,12 +3,15 @@ Nextcloud API client for folder and file operations.
 """
 
 import hashlib
+import logging
 import time
 import uuid
 import requests
 from django.conf import settings
 from typing import Optional, Dict, Any, List
 import xml.etree.ElementTree as ET
+
+logger = logging.getLogger(__name__)
 
 
 class NextcloudClient:
@@ -19,18 +22,80 @@ class NextcloudClient:
     INITIAL_BACKOFF = 2  # seconds
     MAX_BACKOFF = 60  # seconds
 
-    def __init__(self, access_token: str):
+    def __init__(self, access_token: str, user_profile=None):
+        """
+        Initialize the Nextcloud client.
+        
+        Args:
+            access_token: OAuth2 access token
+            user_profile: Optional UserProfile instance for automatic token refresh
+        """
         self.base_url = settings.NEXTCLOUD_URL.rstrip('/')
         self.access_token = access_token
+        self.user_profile = user_profile
+        self._token_refreshed = False  # Track if we've already tried refreshing
         self.headers = {
             'Authorization': f'Bearer {access_token}',
             'OCS-APIRequest': 'true',
         }
         self._cached_username = None  # Cache username to reduce API calls
 
+    def _refresh_token(self) -> bool:
+        """
+        Attempt to refresh the OAuth2 access token.
+        
+        Returns:
+            True if refresh succeeded, False otherwise
+        """
+        if not self.user_profile or not self.user_profile.nextcloud_refresh_token:
+            return False
+        
+        if self._token_refreshed:
+            # Already tried refreshing, don't loop
+            return False
+        
+        self._token_refreshed = True
+        
+        try:
+            url = f'{self.base_url}/index.php/apps/oauth2/api/v1/token'
+            data = {
+                'grant_type': 'refresh_token',
+                'refresh_token': self.user_profile.nextcloud_refresh_token,
+                'client_id': settings.SOCIAL_AUTH_NEXTCLOUD_KEY,
+                'client_secret': settings.SOCIAL_AUTH_NEXTCLOUD_SECRET,
+            }
+            response = requests.post(url, data=data, timeout=10)
+            
+            if response.status_code == 200:
+                tokens = response.json()
+                new_access_token = tokens.get('access_token')
+                new_refresh_token = tokens.get('refresh_token')
+                
+                if new_access_token:
+                    # Update our instance
+                    self.access_token = new_access_token
+                    self.headers['Authorization'] = f'Bearer {new_access_token}'
+                    
+                    # Save to database
+                    self.user_profile.nextcloud_access_token = new_access_token
+                    if new_refresh_token:
+                        self.user_profile.nextcloud_refresh_token = new_refresh_token
+                    self.user_profile.save()
+                    
+                    logger.info(f"Successfully refreshed Nextcloud token for user {self.user_profile.user}")
+                    return True
+            
+            logger.warning(f"Failed to refresh token: {response.status_code}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error refreshing Nextcloud token: {e}")
+            return False
+
     def _request_with_retry(self, method: str, url: str, **kwargs) -> requests.Response:
         """
         Make an HTTP request with exponential backoff retry on rate limiting.
+        Automatically attempts token refresh on 401 errors.
 
         Args:
             method: HTTP method (GET, PUT, POST, etc.)
@@ -47,9 +112,21 @@ class NextcloudClient:
         last_response = None
 
         for attempt in range(self.MAX_RETRIES):
+            # Ensure headers use current token (may have been refreshed)
+            if 'headers' in kwargs:
+                kwargs['headers']['Authorization'] = f'Bearer {self.access_token}'
+            
             response = requests.request(method, url, **kwargs)
             last_response = response
 
+            # Check for authentication failure (401) - try token refresh
+            if response.status_code == 401 and not self._token_refreshed:
+                if self._refresh_token():
+                    # Token refreshed, retry with new token
+                    if 'headers' in kwargs:
+                        kwargs['headers']['Authorization'] = f'Bearer {self.access_token}'
+                    continue
+            
             # Check for rate limiting (429) or server overload (503)
             if response.status_code in [429, 503]:
                 # Check for Retry-After header

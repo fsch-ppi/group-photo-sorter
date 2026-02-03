@@ -110,7 +110,7 @@ def upload_file(request, share_token):
         try:
             profile = folder.owner.profile
             if profile.nextcloud_access_token:
-                client = NextcloudClient(profile.nextcloud_access_token)
+                client = NextcloudClient(profile.nextcloud_access_token, user_profile=profile)
                 size_result = client.get_folder_size(
                     folder.nextcloud_folder_path)
                 if size_result['success']:

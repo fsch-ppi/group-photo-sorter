@@ -245,7 +245,7 @@ def flush_image_batch(self, folder_id: int):
             cache.set(batch_key, batch_data, timeout=300)
             raise RuntimeError("Owner's Nextcloud access token not available")
 
-        client = NextcloudClient(profile.nextcloud_access_token)
+        client = NextcloudClient(profile.nextcloud_access_token, user_profile=profile)
 
         # Prepare files for bulk upload
         files_to_upload = []
@@ -333,7 +333,7 @@ def process_uploaded_file(
         if not profile.nextcloud_access_token:
             raise RuntimeError("Owner's Nextcloud access token not available")
 
-        client = NextcloudClient(profile.nextcloud_access_token)
+        client = NextcloudClient(profile.nextcloud_access_token, user_profile=profile)
 
         # Convert file
         converted_file_path = None  # Track for cleanup in streaming mode
