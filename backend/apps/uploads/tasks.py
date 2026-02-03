@@ -9,6 +9,7 @@ import glob
 from datetime import datetime, timedelta
 from pathlib import Path
 from celery import shared_task
+from celery.exceptions import MaxRetriesExceededError
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
@@ -179,6 +180,13 @@ def process_image_for_batch(
                 countdown=IMAGE_BATCH_TIMEOUT
             )
 
+        # Clean up temp file on success
+        if os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception:
+                pass
+
         return {
             'success': True,
             'queued_for_batch': True,
@@ -187,15 +195,17 @@ def process_image_for_batch(
         }
 
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=60)
-
-    finally:
-        # Clean up temp file
-        if os.path.exists(temp_file_path):
-            try:
-                os.unlink(temp_file_path)
-            except Exception:
-                pass
+        # Don't clean up temp file here - it will be needed for retry
+        try:
+            raise self.retry(exc=exc, countdown=60)
+        except MaxRetriesExceededError:
+            # All retries exhausted, clean up the temp file
+            if os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except Exception:
+                    pass
+            raise
 
 
 @shared_task(bind=True, max_retries=3)
@@ -387,6 +397,13 @@ def process_uploaded_file(
             conversion_time_seconds=conversion_time
         )
 
+        # Clean up temp file on success
+        if os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception:
+                pass
+
         return {
             'success': True,
             'filename': unique_filename,
@@ -396,19 +413,20 @@ def process_uploaded_file(
         }
 
     except Exception as exc:
-        # Retry on failure
-        raise self.retry(exc=exc, countdown=60)
-
-    finally:
-        # Clean up temp file
-        if os.path.exists(temp_file_path):
-            try:
-                os.unlink(temp_file_path)
-            except Exception:
-                pass
-        # Clean up converted video file if still present (in case of error)
+        # Clean up converted video file on error (but keep temp file for retry)
         if converted_file_path and os.path.exists(converted_file_path):
             try:
                 os.unlink(converted_file_path)
             except Exception:
                 pass
+        # Retry on failure - don't clean up temp_file_path, it's needed for retry
+        try:
+            raise self.retry(exc=exc, countdown=60)
+        except MaxRetriesExceededError:
+            # All retries exhausted, clean up the temp file
+            if os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except Exception:
+                    pass
+            raise
