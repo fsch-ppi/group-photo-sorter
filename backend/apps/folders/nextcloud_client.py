@@ -367,6 +367,8 @@ class NextcloudClient:
         # Make the bulk upload request
         url = f"{self.base_url}/remote.php/dav/bulk"
 
+        logger.info(f"Attempting bulk upload to {url} with {len(files)} files")
+
         response = self._request_with_retry(
             'POST',
             url,
@@ -376,6 +378,8 @@ class NextcloudClient:
             },
             data=body
         )
+
+        logger.info(f"Bulk upload response: {response.status_code}")
 
         if response.status_code == 200:
             try:
@@ -397,6 +401,7 @@ class NextcloudClient:
                     'uploaded_count': len(files)
                 }
 
+        logger.warning(f"Bulk upload failed: {response.status_code} - {response.text[:500]}")
         return {
             'success': False,
             'error': f'Bulk upload failed: {response.status_code} {response.text}'
