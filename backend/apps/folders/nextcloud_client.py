@@ -329,33 +329,32 @@ class NextcloudClient:
             return {'success': True, 'results': {}}
 
         # Generate a unique boundary for multipart
-        boundary = f"bulk_upload_{uuid.uuid4().hex}"
+        boundary = f"boundary_{uuid.uuid4().hex}"
 
-        # Build multipart body
+        # Build multipart body following Nextcloud bulk upload spec
+        # Reference: https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/bulkupload.html
         body_parts = []
 
         for file_info in files:
             remote_path = file_info['remote_path'].lstrip('/')
             content = file_info['content']
-            content_type = file_info.get(
-                'content_type', 'application/octet-stream')
             mtime = file_info.get('mtime', int(time.time()))
 
             # Calculate MD5 checksum
             md5_hash = hashlib.md5(content).hexdigest()
 
-            # Build headers for this part
+            # Build headers for this part - following exact format from Nextcloud docs
+            # X-File-Path should include /files/username/ prefix for WebDAV
             part_headers = [
-                f"--{boundary}",
-                f"X-File-Path: /{username}/{remote_path}",
-                f"X-OC-Mtime: {mtime}",
-                f"X-File-Md5: {md5_hash}",
-                f"Content-Length: {len(content)}",
-                f"Content-Type: {content_type}",
-                "",  # Empty line before content
+                f"--{boundary}\r\n",
+                f"X-File-Path: /files/{username}/{remote_path}\r\n",
+                f"X-OC-Mtime: {mtime}\r\n",
+                f"X-File-Md5: {md5_hash}\r\n",
+                f"Content-Length: {len(content)}\r\n",
+                "\r\n",  # Empty line before content
             ]
 
-            body_parts.append("\r\n".join(part_headers).encode('utf-8'))
+            body_parts.append("".join(part_headers).encode('utf-8'))
             body_parts.append(content)
             body_parts.append(b"\r\n")
 
