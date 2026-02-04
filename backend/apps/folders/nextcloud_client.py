@@ -344,10 +344,10 @@ class NextcloudClient:
             md5_hash = hashlib.md5(content).hexdigest()
 
             # Build headers for this part - following exact format from Nextcloud docs
-            # X-File-Path should include /files/username/ prefix for WebDAV
+            # X-File-Path is relative to user's files folder (no /files/username prefix)
             part_headers = [
                 f"--{boundary}\r\n",
-                f"X-File-Path: /files/{username}/{remote_path}\r\n",
+                f"X-File-Path: /{remote_path}\r\n",
                 f"X-OC-Mtime: {mtime}\r\n",
                 f"X-File-Md5: {md5_hash}\r\n",
                 f"Content-Length: {len(content)}\r\n",
