@@ -270,15 +270,47 @@ def flush_image_batch(self, folder_id: int):
                 '_unique_filename': unique_filename,
             })
 
-        # Bulk upload to Nextcloud
+        # Try bulk upload first, fall back to individual uploads if not supported
         result = client.bulk_upload(files_to_upload)
 
         if not result['success']:
-            # Re-queue failed items
-            cache.set(batch_key, batch_data, timeout=300)
-            raise RuntimeError(f"Bulk upload failed: {result.get('error')}")
+            # Bulk upload failed (possibly not supported), try individual uploads
+            failed_items = []
+            for file_info in files_to_upload:
+                individual_result = client.upload_file(
+                    file_info['remote_path'],
+                    file_info['content'],
+                    file_info['content_type']
+                )
+                if individual_result['success']:
+                    # Record statistics for successful upload
+                    original = file_info['_original']
+                    UploadStatistics.objects.create(
+                        folder=folder,
+                        uploader_ip=original['uploader_ip'],
+                        filename_original=original['original_filename'],
+                        filename_converted=file_info['_unique_filename'],
+                        file_size_original=original['original_size'],
+                        file_size_converted=original['converted_size'],
+                        file_type='image',
+                        conversion_time_seconds=original['conversion_time']
+                    )
+                else:
+                    failed_items.append(file_info['_original'])
 
-        # Record statistics for each uploaded file
+            if failed_items:
+                # Re-queue failed items for retry
+                cache.set(batch_key, failed_items, timeout=300)
+                raise RuntimeError(f"Failed to upload {len(failed_items)} files individually")
+
+            return {
+                'success': True,
+                'uploaded': len(files_to_upload),
+                'folder_id': folder_id,
+                'method': 'individual',
+            }
+
+        # Bulk upload succeeded - record statistics for each uploaded file
         for file_info in files_to_upload:
             original = file_info['_original']
             UploadStatistics.objects.create(
