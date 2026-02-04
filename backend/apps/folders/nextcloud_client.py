@@ -380,11 +380,12 @@ class NextcloudClient:
         )
 
         logger.info(f"Bulk upload response: {response.status_code}")
+        logger.info(f"Bulk upload response body: {response.text[:1000]}")
 
         if response.status_code == 200:
             try:
                 results = response.json()
-                logger.info(f"Bulk upload results: {results}")
+                logger.info(f"Bulk upload results parsed: {results}")
                 # Check if all files succeeded
                 all_success = all(
                     not r.get('error', False)
