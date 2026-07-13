@@ -21,11 +21,13 @@
 - Keeps track of upload statistics with GDPR compliance (IP anonymization).
 - Uses Nextcloud's built-in caches (Redis/Memcached) for rate limiting and lock management.
 ]]></description>
-	<version>1.0.3</version>
+	<version>1.0.4</version>
 	<licence>mit</licence>
 	<author>Florian Schlösser</author>
 	<namespace>GroupPhotoSorter</namespace>
 	<category>files</category>
+	<website>https://github.com/fsch-ppi/group-photo-sorter</website>
+	<repository type="git">https://github.com/fsch-ppi/group-photo-sorter.git</repository>
 	<bugs>https://github.com/fsch-ppi/group-photo-sorter/issues</bugs>
 	<dependencies>
 		<php min-version="8.1" max-version="8.4" />
@@ -39,4 +41,8 @@
 		<command>OCA\GroupPhotoSorter\Command\ProcessQueueCommand</command>
 		<command>OCA\GroupPhotoSorter\Command\TestAppCommand</command>
 	</commands>
+	<settings>
+		<admin>OCA\GroupPhotoSorter\Settings\AdminSettings</admin>
+		<admin-section>OCA\GroupPhotoSorter\Sections\AdminSection</admin-section>
+	</settings>
 </info>
