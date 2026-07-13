@@ -41,3 +41,8 @@ Thumbs.db
 
 # Temp uploads
 temp_uploads/
+
+# Code Signing
+*.key
+*.csr
+*.crt
