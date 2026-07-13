@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
 	content: ['./src/**/*.{html,js,svelte,ts}'],
+	important: '.gps-app',
 	theme: {
 		extend: {
 			colors: {

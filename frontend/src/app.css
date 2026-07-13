@@ -1,18 +1,206 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-	--color-bg: #ffffff;
-	--color-text: #1f2937;
-	--color-primary: #0ea5e9;
+	--color-bg: #f8fafc;
+	--color-text: #0f172a;
 }
 
 body {
-	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
+	font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
 		'Open Sans', 'Helvetica Neue', sans-serif;
 	background-color: var(--color-bg);
 	color: var(--color-text);
+}
+
+.gps-app {
+	font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+	color: #0f172a;
+	width: 100% !important;
+	max-width: 1400px !important;
+	margin: 0 auto !important;
+	display: block !important;
+	background-color: rgba(255, 255, 255, 0.45) !important;
+	backdrop-filter: blur(8px) !important;
+	-webkit-backdrop-filter: blur(8px) !important;
+	border-radius: 1.25rem !important;
+	padding: 2rem !important;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05) !important;
+	border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+@layer base {
+	/* Solid white card background for maximum readability */
+	.gps-app .bg-white {
+		background-color: #ffffff !important;
+		border: 1px solid rgba(226, 232, 240, 0.8) !important;
+	}
+
+	.gps-app .shadow {
+		box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02) !important;
+	}
+
+	.gps-app .rounded-xl {
+		border-radius: 1rem !important;
+	}
+
+	/* Glowing input fields */
+	.gps-app input[type="text"], 
+	.gps-app select, 
+	.gps-app textarea {
+		background-color: rgba(255, 255, 255, 0.8) !important;
+		border: 1px solid #e2e8f0 !important;
+		border-radius: 0.75rem !important;
+		padding: 0.625rem 0.875rem !important;
+		color: #0f172a !important;
+		font-size: 0.875rem !important;
+		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+	}
+
+	.gps-app input.pl-10 {
+		padding-left: 2.5rem !important;
+	}
+
+	.gps-app input[type="text"]:focus, 
+	.gps-app select:focus, 
+	.gps-app textarea:focus {
+		outline: none !important;
+		border-color: var(--color-primary, #0082c9) !important;
+		background-color: #ffffff !important;
+		box-shadow: 0 0 0 4px rgba(0, 130, 201, 0.12) !important;
+	}
+
+	/* Select specific fixes */
+	.gps-app select {
+		appearance: none !important;
+		background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") !important;
+		background-position: right 0.75rem center !important;
+		background-repeat: no-repeat !important;
+		background-size: 1.25rem !important;
+		padding-right: 2.5rem !important;
+	}
+
+	/* Primary Buttons: Matches Nextcloud brand color */
+	.gps-app .bg-blue-600 {
+		background-color: var(--color-primary, #0082c9) !important;
+		color: var(--color-primary-text, #ffffff) !important;
+		font-weight: 600 !important;
+		box-shadow: 0 4px 12px rgba(0, 130, 201, 0.2) !important;
+		border: none !important;
+		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+		cursor: pointer !important;
+	}
+
+	.gps-app .bg-blue-600:hover {
+		background-color: var(--color-primary-element-light, #0070ad) !important;
+		box-shadow: 0 6px 20px rgba(0, 130, 201, 0.3) !important;
+		transform: translateY(-1px) !important;
+	}
+
+	.gps-app .bg-blue-600:active {
+		transform: translateY(1px) !important;
+		box-shadow: 0 2px 8px rgba(0, 130, 201, 0.15) !important;
+	}
+
+	.gps-app .bg-blue-600:disabled {
+		background-color: #cbd5e1 !important;
+		box-shadow: none !important;
+		cursor: not-allowed !important;
+		transform: none !important;
+	}
+
+	/* Success Buttons */
+	.gps-app .bg-green-600 {
+		background-color: #10b981 !important;
+		color: #ffffff !important;
+		font-weight: 600 !important;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2) !important;
+		border: none !important;
+		transition: all 0.2s ease !important;
+		cursor: pointer !important;
+	}
+
+	.gps-app .bg-green-600:hover {
+		background-color: #059669 !important;
+		box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3) !important;
+		transform: translateY(-1px) !important;
+	}
+
+	/* Danger Buttons */
+	.gps-app .bg-red-600 {
+		background-color: #ef4444 !important;
+		color: #ffffff !important;
+		font-weight: 600 !important;
+		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2) !important;
+		border: none !important;
+		transition: all 0.2s ease !important;
+		cursor: pointer !important;
+	}
+
+	.gps-app .bg-red-600:hover {
+		background-color: #dc2626 !important;
+		box-shadow: 0 6px 20px rgba(239, 68, 68, 0.3) !important;
+		transform: translateY(-1px) !important;
+	}
+
+	/* Secondary Buttons / Pause Link */
+	.gps-app .bg-gray-200 {
+		background: rgba(241, 245, 249, 0.9) !important;
+		color: #475569 !important;
+		border: 1px solid #e2e8f0 !important;
+		font-weight: 600 !important;
+		transition: all 0.2s ease !important;
+		box-shadow: none !important;
+	}
+
+	.gps-app .bg-gray-200:hover {
+		background: #f1f5f9 !important;
+		border-color: #cbd5e1 !important;
+		color: #1e293b !important;
+	}
+
+	/* Drag Zone Border Highlight */
+	.gps-app label.border-dashed {
+		background: rgba(255, 255, 255, 0.6) !important;
+		border-color: #cbd5e1 !important;
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+	}
+
+	.gps-app label.border-dashed:hover {
+		border-color: var(--color-primary, #0082c9) !important;
+		background-color: rgba(255, 255, 255, 0.8) !important;
+		transform: scale(1.005) !important;
+	}
+
+	/* Table design enhancements */
+	.gps-app table th {
+		font-weight: 600 !important;
+		color: #475569 !important;
+		text-transform: uppercase !important;
+		font-size: 0.75rem !important;
+		letter-spacing: 0.05em !important;
+	}
+
+	.gps-app table tr {
+		transition: background-color 0.2s ease !important;
+	}
+
+	/* Matches Nextcloud brand color for main title */
+	.gps-title-gradient {
+		color: var(--color-primary, #0082c9) !important;
+	}
+
+	/* Force folder cards to correct responsive width in flex layout */
+	.gps-app .gps-folder-card {
+		width: 100% !important;
+		max-width: 360px !important;
+		min-width: 280px !important;
+		flex-grow: 1 !important;
+		flex-shrink: 0 !important;
+	}
 }
 
 @layer components {

@@ -70,7 +70,7 @@
 	</header>
 
 	<!-- Main content -->
-	<main>
+	<main class="gps-app">
 		<slot />
 	</main>
 

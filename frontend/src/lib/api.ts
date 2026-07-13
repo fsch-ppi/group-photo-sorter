@@ -2,7 +2,13 @@
  * API client for backend communication
  */
 
-const API_BASE = '/api';
+function getApiBase(): string {
+	const base = typeof window !== 'undefined' && (window as any).groupPhotoSorter?.apiBase;
+	if (base) {
+		return `${base}/api/v1`;
+	}
+	return '/api/v1';
+}
 
 // Get CSRF token from cookie
 function getCsrfToken(): string | null {
@@ -112,18 +118,23 @@ export interface PaginatedResponse<T> {
 }
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-	const csrfToken = getCsrfToken();
 	const headers: Record<string, string> = {
 		'Content-Type': 'application/json',
 		...(options.headers as Record<string, string>)
 	};
 	
-	// Add CSRF token for non-GET requests
-	if (csrfToken && options.method && options.method !== 'GET') {
-		headers['X-CSRFToken'] = csrfToken;
+	// Add Nextcloud CSRF request token if available (required for NC session auth)
+	if (typeof window !== 'undefined' && (window as any).OC?.requestToken) {
+		headers['requesttoken'] = (window as any).OC.requestToken;
+	} else {
+		// Fallback to CSRF token from cookie for standalone Django backend
+		const csrfToken = getCsrfToken();
+		if (csrfToken && options.method && options.method !== 'GET') {
+			headers['X-CSRFToken'] = csrfToken;
+		}
 	}
 	
-	const response = await fetch(`${API_BASE}${url}`, {
+	const response = await fetch(`${getApiBase()}${url}`, {
 		...options,
 		credentials: 'include',
 		headers
@@ -189,7 +200,7 @@ export const folders = {
 // Upload API (public, no auth required)
 export const upload = {
 	folderInfo: async (shareToken: string): Promise<FolderInfo> => {
-		const response = await fetch(`${API_BASE}/upload/${shareToken}/info/`);
+		const response = await fetch(`${getApiBase()}/upload/${shareToken}/info/`);
 		if (!response.ok) {
 			const error = await response.json().catch(() => ({ error: 'Folder not found' }));
 			throw new Error(error.error || 'Folder not found');
@@ -201,7 +212,7 @@ export const upload = {
 		const formData = new FormData();
 		formData.append('file', file);
 
-		const response = await fetch(`${API_BASE}/upload/${shareToken}/`, {
+		const response = await fetch(`${getApiBase()}/upload/${shareToken}/`, {
 			method: 'POST',
 			body: formData
 		});
@@ -215,7 +226,7 @@ export const upload = {
 	},
 
 	taskStatus: async (taskId: string): Promise<TaskStatus> => {
-		const response = await fetch(`${API_BASE}/upload/task/${taskId}/`);
+		const response = await fetch(`${getApiBase()}/upload/task/${taskId}/`);
 		return response.json();
 	}
 };
