@@ -151,24 +151,49 @@
 
 		// Restore session if exists
 		try {
-			const savedState = loadSessionState(token);
+			let savedState: any[] | null = null;
+			if (sessionId) {
+				try {
+					const res = await upload.sessionStatus(token, sessionId);
+					if (res && res.files && res.files.length > 0) {
+						savedState = res.files.map(item => ({
+							id: item.taskId,
+							name: item.name,
+							size: item.size,
+							status: item.status.toLowerCase(),
+							taskId: item.taskId,
+							error: item.error,
+							result: item.result
+						}));
+					}
+				} catch (err) {
+					console.warn('Failed to fetch session from server, falling back to localStorage:', err);
+				}
+			}
+
+			if (!savedState) {
+				savedState = loadSessionState(token);
+			}
+
 			if (savedState && savedState.length > 0) {
 				for (const item of savedState) {
 					const itemId = item.id || generateUploadId();
-					if (item.status === 'success' || item.status === 'error') {
+					const itemStatus = item.status === 'started' ? 'processing' : item.status;
+					
+					if (itemStatus === 'success' || itemStatus === 'error' || itemStatus === 'failure') {
 						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
 						Object.defineProperty(placeholderFile, 'size', { value: item.size });
 						
 						files = [...files, {
 							id: itemId,
 							file: placeholderFile,
-							status: item.status as FileUpload['status'],
-							progress: item.status === 'success' ? 100 : 0,
+							status: (itemStatus === 'failure' ? 'error' : itemStatus) as FileUpload['status'],
+							progress: itemStatus === 'success' ? 100 : 0,
 							taskId: item.taskId,
 							error: item.error,
 							result: item.result
 						}];
-					} else if (item.taskId && (item.status === 'processing' || item.status === 'uploading')) {
+					} else if (item.taskId && (itemStatus === 'processing' || itemStatus === 'uploading' || itemStatus === 'pending')) {
 						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
 						Object.defineProperty(placeholderFile, 'size', { value: item.size });
 						
@@ -182,16 +207,6 @@
 						files = [...files, fileUpload];
 						
 						pollTaskStatusById(itemId, item.taskId);
-					} else if (item.status === 'pending' || item.status === 'uploading') {
-						const placeholderFile = new File([], item.name, { type: 'application/octet-stream' });
-						Object.defineProperty(placeholderFile, 'size', { value: item.size });
-						
-						files = [...files, {
-							id: itemId,
-							file: placeholderFile,
-							status: 'pending',
-							progress: 0
-						}];
 					}
 				}
 				
@@ -351,7 +366,7 @@
 		saveSessionState();
 
 		try {
-			const result = await upload.uploadFile(token, fileUpload.file);
+			const result = await upload.uploadFile(token, fileUpload.file, sessionId);
 			updateFile(id, {
 				status: 'processing',
 				progress: 50,
@@ -526,14 +541,26 @@
 				</h1>
 				<p class="text-gray-600">Upload photos and videos for <strong class="text-gray-800">{folderInfo.event_name}</strong></p>
 			{#if folderInfo.readme_message}
-				<div class="mt-4 p-4 bg-gray-50 rounded-lg text-sm text-gray-700 max-w-xl mx-auto border border-gray-100 whitespace-pre-line text-left">
+				<div class="mt-6 mb-6 p-4 bg-gray-50 rounded-lg text-sm text-gray-700 max-w-xl mx-auto border border-gray-100 whitespace-pre-line text-left">
 					{folderInfo.readme_message}
 				</div>
 			{/if}
 		</div>
 
+		<!-- Hidden input for Firefox upload compat -->
+		<input
+			bind:this={fileInput}
+			id="file-upload-input"
+			type="file"
+			multiple
+			accept={acceptString}
+			class="sr-only"
+			on:change={handleFileSelect}
+		/>
+
 		<!-- Drop Zone -->
 		<label
+			for="file-upload-input"
 			class={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer bg-white ${
 				isDragOver
 					? 'border-blue-500 bg-blue-50'
@@ -543,14 +570,6 @@
 			on:dragleave={handleDragLeave}
 			on:drop={handleDrop}
 		>
-			<input
-				bind:this={fileInput}
-				type="file"
-				multiple
-				accept={acceptString}
-				class="sr-only"
-				on:change={handleFileSelect}
-			/>
 
 			<svg class="w-12 h-12 text-gray-400 mx-auto mb-4 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />

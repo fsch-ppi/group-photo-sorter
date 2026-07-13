@@ -123,5 +123,16 @@ class ConversionTaskMapper extends QBMapper {
         }
         
         $qb->executeStatement();
+     }
+
+    /**
+     * Delete all tasks for a folder
+     */
+    public function deleteForFolder(int $folderId): void {
+        $qb = $this->db->getQueryBuilder();
+        $qb->delete($this->tableName)
+           ->where($qb->expr()->eq('folder_id', $qb->createNamedParameter($folderId, IQueryBuilder::PARAM_INT)));
+        $qb->executeStatement();
     }
 }
+

@@ -24,5 +24,6 @@ return [
         ['name' => 'UploadApi#info', 'url' => '/api/v1/upload/{token}/info/', 'verb' => 'GET'],
         ['name' => 'UploadApi#upload', 'url' => '/api/v1/upload/{token}/', 'verb' => 'POST'],
         ['name' => 'UploadApi#taskStatus', 'url' => '/api/v1/upload/task/{taskId}/', 'verb' => 'GET'],
+        ['name' => 'UploadApi#sessionStatus', 'url' => '/api/v1/upload/{token}/session/{sessionId}/', 'verb' => 'GET'],
     ]
 ];

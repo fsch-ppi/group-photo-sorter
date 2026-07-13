@@ -18,11 +18,10 @@ class UploadStatsMapper extends QBMapper {
     public function getFolderStats(int $folderId): array {
         // 1. Totals
         $qb = $this->db->getQueryBuilder();
-        $qb->select(
-                $qb->func()->count('id', 'total_uploads'),
-                $qb->func()->sum('file_size_original', 'total_original'),
-                $qb->func()->sum('file_size_converted', 'total_converted')
-            )
+        $qb->select()
+           ->selectAlias($qb->func()->count('id'), 'total_uploads')
+           ->selectAlias($qb->func()->sum('file_size_original'), 'total_original')
+           ->selectAlias($qb->func()->sum('file_size_converted'), 'total_converted')
            ->from($this->tableName)
            ->where($qb->expr()->eq('folder_id', $qb->createNamedParameter($folderId, IQueryBuilder::PARAM_INT)));
 
@@ -86,4 +85,15 @@ class UploadStatsMapper extends QBMapper {
            ->andWhere($qb->expr()->neq('uploader_ip', $qb->createNamedParameter('xxx.xxx.xxx.xxx')));
         return $qb->executeStatement();
     }
+
+    /**
+     * Delete all statistics for a folder
+     */
+    public function deleteForFolder(int $folderId): void {
+        $qb = $this->db->getQueryBuilder();
+        $qb->delete($this->tableName)
+           ->where($qb->expr()->eq('folder_id', $qb->createNamedParameter($folderId, IQueryBuilder::PARAM_INT)));
+        $qb->executeStatement();
+    }
 }
+

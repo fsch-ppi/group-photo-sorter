@@ -57,6 +57,7 @@
 	let showCreateModal = false;
 	let showDetailModal = false;
 	let selectedFolder: PhotoFolder | null = null;
+	let showDeleteConfirm = false;
 
 	// Create form
 	let createForm = {
@@ -125,6 +126,7 @@
 	}
 
 	async function openDetail(folder: PhotoFolder) {
+		showDeleteConfirm = false;
 		try {
 			selectedFolder = await folders.get(folder.id);
 			showDetailModal = true;
@@ -187,9 +189,10 @@
 		}
 	}
 
-	async function deleteFolder() {
+	async function confirmDelete() {
 		if (!selectedFolder) return;
-		if (!confirm('Are you sure you want to delete this folder configuration? The Nextcloud folder will not be deleted.')) {
+		if (selectedFolder.is_active) {
+			showToast('Please pause the upload link before deleting', 'error');
 			return;
 		}
 		const folderId = selectedFolder.id;
@@ -198,6 +201,7 @@
 			folderList = folderList.filter((f) => f.id !== folderId);
 			showDetailModal = false;
 			selectedFolder = null;
+			showDeleteConfirm = false;
 			showToast('Folder deleted');
 		} catch (e) {
 			console.error('Failed to delete folder:', e);
@@ -236,7 +240,7 @@
 	</div>
 {/if}
 
-<div class="relative min-h-screen w-full overflow-hidden text-left pb-12">
+<div class="relative min-h-full w-full text-left pb-12">
 	<!-- Ambient Background Orbs -->
 	<div class="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
 		<div class="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-indigo-500 opacity-[0.05] blur-[120px]"></div>
@@ -512,7 +516,26 @@
 					<!-- Danger Zone -->
 					<div class="border-t border-gray-100 pt-6">
 						<h3 class="text-red-600 font-semibold mb-3">Danger Zone</h3>
-						<button class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg border-none cursor-pointer" on:click={deleteFolder}>Delete Configuration</button>
+						{#if selectedFolder.is_active}
+							<button class="bg-gray-300 text-gray-500 font-semibold py-2 px-4 rounded-lg border-none cursor-not-allowed" disabled title="Pause sharing to delete">Delete Configuration</button>
+							<p class="text-xs text-red-500 mt-2">You must pause the upload link (above) before you can delete this configuration.</p>
+						{:else if showDeleteConfirm}
+							<div class="bg-red-50 border border-red-200 rounded-xl p-5 mb-4 shadow-sm">
+								<p class="text-sm text-red-800 font-semibold mb-3 flex items-center gap-2">
+									<svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+									</svg>
+									Confirm Deletion
+								</p>
+								<p class="text-sm text-red-700 mb-4">Are you sure you want to delete this folder configuration? Your files and folders in Nextcloud will NOT be affected.</p>
+								<div class="flex gap-3">
+									<button class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg border-none cursor-pointer text-sm transition-colors" on:click={confirmDelete}>Yes, Delete</button>
+									<button class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-semibold py-2 px-4 rounded-lg cursor-pointer text-sm transition-colors" on:click={() => (showDeleteConfirm = false)}>Cancel</button>
+								</div>
+							</div>
+						{:else}
+							<button class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg border-none cursor-pointer" on:click={() => (showDeleteConfirm = true)}>Delete Configuration</button>
+						{/if}
 						<p class="text-xs text-gray-500 mt-2">This only deletes the settings link. Your files and folders in Nextcloud will NOT be affected.</p>
 					</div>
 				</div>

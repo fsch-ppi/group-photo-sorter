@@ -208,13 +208,22 @@ export const upload = {
 		return response.json();
 	},
 
-	uploadFile: async (shareToken: string, file: File): Promise<UploadResult> => {
+	uploadFile: async (shareToken: string, file: File, sessionId?: string | null): Promise<UploadResult> => {
 		const formData = new FormData();
 		formData.append('file', file);
+		if (sessionId) {
+			formData.append('session_id', sessionId);
+		}
+
+		const headers: Record<string, string> = {};
+		if (typeof window !== 'undefined' && (window as any).OC?.requestToken) {
+			headers['requesttoken'] = (window as any).OC.requestToken;
+		}
 
 		const response = await fetch(`${getApiBase()}/upload/${shareToken}/`, {
 			method: 'POST',
-			body: formData
+			body: formData,
+			headers
 		});
 
 		if (!response.ok) {
@@ -227,6 +236,15 @@ export const upload = {
 
 	taskStatus: async (taskId: string): Promise<TaskStatus> => {
 		const response = await fetch(`${getApiBase()}/upload/task/${taskId}/`);
+		return response.json();
+	},
+
+	sessionStatus: async (shareToken: string, sessionId: string): Promise<{ files: any[] }> => {
+		const response = await fetch(`${getApiBase()}/upload/${shareToken}/session/${sessionId}/`);
+		if (!response.ok) {
+			const error = await response.json().catch(() => ({ error: 'Session not found' }));
+			throw new Error(error.error || 'Session not found');
+		}
 		return response.json();
 	}
 };

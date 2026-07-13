@@ -216,6 +216,9 @@ class ConversionService {
      * Trigger queue processor in a separate background command line process immediately
      */
     private function triggerQueueProcessingAsync(): void {
+        if (getenv('GPS_TESTING') === '1') {
+            return;
+        }
         $occPath = \OC::$SERVERROOT . '/occ';
         if (file_exists($occPath)) {
             $cmd = "php " . escapeshellarg($occPath) . " group-photo-sorter:process-queue > /dev/null 2>&1 &";

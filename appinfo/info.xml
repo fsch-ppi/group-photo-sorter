@@ -3,11 +3,14 @@
 	<id>group_photo_sorter</id>
 	<bootstrap>true</bootstrap>
 	<name>Group Photo Sorter</name>
-	<navigation>
-		<name>Group Photo Sorter</name>
-		<route>group_photo_sorter.page.index</route>
-		<icon>app.svg</icon>
-	</navigation>
+	<navigations>
+		<navigation>
+			<name>Group Photo Sorter</name>
+			<route>group_photo_sorter.page.index</route>
+			<icon>app.svg</icon>
+			<order>10</order>
+		</navigation>
+	</navigations>
 	<summary>Collect, auto-convert, and organize photos/videos from shared upload links</summary>
 	<description><![CDATA[A Nextcloud app that allows you to generate secure, shareable upload links. Guests can upload photos and videos anonymously. The app automatically:
 - Converts images (HEIC, RAW, PNG, TIFF, WebP) to standard JPEG.

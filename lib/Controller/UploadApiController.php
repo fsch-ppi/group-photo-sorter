@@ -12,21 +12,26 @@ use OCA\GroupPhotoSorter\Service\ConversionService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\Attribute\PublicPage;
+use OCP\ICacheFactory;
+use OCP\ICache;
 
 class UploadApiController extends Controller {
 
     private FolderMapper $folderMapper;
     private ConversionService $conversionService;
+    private ICache $cache;
 
     public function __construct(
         string $appName,
         IRequest $request,
         FolderMapper $folderMapper,
-        ConversionService $conversionService
+        ConversionService $conversionService,
+        ICacheFactory $cacheFactory
     ) {
         parent::__construct($appName, $request);
         $this->folderMapper = $folderMapper;
         $this->conversionService = $conversionService;
+        $this->cache = $cacheFactory->createDistributed('group_photo_sorter');
     }
 
     /**
@@ -132,11 +137,110 @@ class UploadApiController extends Controller {
                 $isVideo
             );
 
+            // Record task in user session cache
+            $sessionId = $this->request->getParam('session_id') ?: $this->request->getParam('sessionId');
+            if ($sessionId) {
+                $sessionKey = 'upload_session_' . $token . '_' . $sessionId;
+                $sessionData = $this->cache->get($sessionKey);
+                if ($sessionData !== null) {
+                    $sessionData = json_decode($sessionData, true);
+                }
+                if (!is_array($sessionData)) {
+                    $sessionData = [];
+                }
+                
+                $sessionData[] = [
+                    'taskId' => $taskId,
+                    'name' => $originalFilename,
+                    'size' => filesize($tempPath)
+                ];
+                
+                $this->cache->set($sessionKey, json_encode($sessionData), 86400); // 24 hours
+            }
+
             return new DataResponse([
                 'success' => true,
                 'task_id' => $taskId,
                 'message' => 'File uploaded and queued for conversion'
             ]);
+
+        } catch (DoesNotExistException $e) {
+            return new DataResponse(['error' => 'Folder not found'], Http::STATUS_NOT_FOUND);
+        } catch (\Exception $e) {
+            return new DataResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+        }
+    }
+
+    /**
+     * Get statuses of all tasks in the session
+     *
+     * @NoAdminRequired
+     * @NoCSRFRequired
+     * @PublicPage
+     * @Guest
+     */
+    #[NoAdminRequired]
+    #[NoCSRFRequired]
+    #[PublicPage]
+    public function sessionStatus(string $token, string $sessionId): DataResponse {
+        try {
+            $folder = $this->folderMapper->findByToken($token);
+
+            if (!$folder->getIsActive()) {
+                return new DataResponse(['error' => 'This upload link is paused'], Http::STATUS_FORBIDDEN);
+            }
+
+            $sessionKey = 'upload_session_' . $token . '_' . $sessionId;
+            $sessionData = $this->cache->get($sessionKey);
+            if ($sessionData !== null) {
+                $sessionData = json_decode($sessionData, true);
+            }
+            if (!is_array($sessionData)) {
+                return new DataResponse(['files' => []]);
+            }
+
+            $statusMap = [
+                'pending' => 'PENDING',
+                'processing' => 'STARTED',
+                'completed' => 'SUCCESS',
+                'failed' => 'FAILURE'
+            ];
+
+            $files = [];
+            foreach ($sessionData as $item) {
+                $taskId = $item['taskId'] ?? '';
+                if ($taskId === '') {
+                    continue;
+                }
+
+                try {
+                    $task = $this->conversionService->getTask($taskId);
+                    $status = $statusMap[$task->getStatus()] ?? 'PENDING';
+                    
+                    $fileItem = [
+                        'taskId' => $taskId,
+                        'name' => $item['name'] ?? $task->getOriginalFilename(),
+                        'size' => $item['size'] ?? 0,
+                        'status' => $status
+                    ];
+
+                    if ($task->getStatus() === 'completed') {
+                        $fileItem['result'] = [
+                            'success' => true,
+                            'filename' => $task->getOriginalFilename()
+                        ];
+                    } elseif ($task->getStatus() === 'failed') {
+                        $fileItem['error'] = $task->getErrorMessage();
+                    }
+                    
+                    $files[] = $fileItem;
+                } catch (DoesNotExistException $e) {
+                    // Task no longer in database, skip it
+                    continue;
+                }
+            }
+
+            return new DataResponse(['files' => $files]);
 
         } catch (DoesNotExistException $e) {
             return new DataResponse(['error' => 'Folder not found'], Http::STATUS_NOT_FOUND);

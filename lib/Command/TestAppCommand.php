@@ -45,6 +45,7 @@ class TestAppCommand extends Command {
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int {
+        putenv('GPS_TESTING=1');
         $output->writeln("=================================================");
         $output->writeln("Running Group Photo Sorter CLI Integration Tests");
         $output->writeln("=================================================");
@@ -97,7 +98,7 @@ class TestAppCommand extends Command {
         
         if ($returnVal !== 0 || !file_exists($tempInputPath) || filesize($tempInputPath) === 0) {
             $output->writeln("<error>Failed to generate test image file: " . implode("\n", $execOutput) . "</error>");
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             return Command::FAILURE;
         }
         $output->writeln("   - Test image generated at: " . $tempInputPath);
@@ -115,31 +116,47 @@ class TestAppCommand extends Command {
         } catch (\Exception $e) {
             $output->writeln("<error>Failed to create task: " . $e->getMessage() . "</error>");
             @unlink($tempInputPath);
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             return Command::FAILURE;
         }
 
         // 4. Process the conversion queue
         $output->writeln("4. Processing conversion queue...");
         try {
+            // Claim our specific test task to prevent other queued tasks from taking precedence
+            $task = $this->taskMapper->find($taskId);
+            $this->taskMapper->claimTask($taskId, 999999);
+            
+            // Run converter script synchronously on the test image
+            $converterScript = __DIR__ . '/../../bin/converter.py';
+            $pythonBin = __DIR__ . '/../../.venv/bin/python3';
+            if (!file_exists($pythonBin)) {
+                $pythonBin = __DIR__ . '/../../venv/bin/python3';
+                if (!file_exists($pythonBin)) {
+                    $pythonBin = 'python3';
+                }
+            }
+            $cmd = escapeshellarg($pythonBin) . " " . escapeshellarg($converterScript) . " convert-image " . 
+                   escapeshellarg($task->getTempPath()) . " " . 
+                   escapeshellarg($task->getOutputPath()) . " " . 
+                   escapeshellarg($folder->getJpegQuality());
+            
+            $cmdOutput = [];
+            $retVal = -1;
+            exec($cmd . " 2>&1", $cmdOutput, $retVal);
+            
+            if ($retVal !== 0) {
+                $output->writeln("<error>Python converter failed (code $retVal): " . implode("\n", $cmdOutput) . "</error>");
+            }
+            
+            // Run queue processing to let Nextcloud service finalize our claimed and converted task
             $result = $this->conversionService->processQueue();
             $output->writeln("   - Processed: " . $result['processed']);
             $output->writeln("   - Completed: " . $result['completed']);
             $output->writeln("   - Failed: " . $result['failed']);
-            
-            if ($result['failed'] > 0) {
-                try {
-                    $task = $this->taskMapper->find($taskId);
-                    $output->writeln("<error>Task failed. Error: " . $task->getErrorMessage() . "</error>");
-                } catch (\Exception $e) {
-                    $output->writeln("<error>Task failed and could not be retrieved from DB</error>");
-                }
-                $this->folderService->delete($folder->getId(), 'admin');
-                return Command::FAILURE;
-            }
         } catch (\Exception $e) {
             $output->writeln("<error>Queue processing threw exception: " . $e->getMessage() . "</error>");
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             return Command::FAILURE;
         }
 
@@ -156,14 +173,14 @@ class TestAppCommand extends Command {
         
         if (!$taskExists || $dbTask === null) {
             $output->writeln("<error>Assertion Failed: Task does not exist in gps_tasks database</error>");
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             return Command::FAILURE;
         }
         
         if ($dbTask->getStatus() !== 'completed') {
             $output->writeln("<error>Assertion Failed: Task status is " . $dbTask->getStatus() . " (expected completed)</error>");
             $output->writeln("   - Error message: " . ($dbTask->getErrorMessage() ?: 'None'));
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             return Command::FAILURE;
         }
         $output->writeln("   [OK] Task marked as completed in database");
@@ -172,7 +189,7 @@ class TestAppCommand extends Command {
         $stats = $this->statsMapper->getUploadCount($folder->getId());
         if ($stats !== 1) {
             $output->writeln("<error>Assertion Failed: Statistics show " . $stats . " uploads (expected 1)</error>");
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             return Command::FAILURE;
         }
         $output->writeln("   [OK] Upload recorded in statistics database");
@@ -183,7 +200,7 @@ class TestAppCommand extends Command {
             $vfsPath = "Photos/" . $testFolderName;
             if (!$userFolder->nodeExists($vfsPath)) {
                 $output->writeln("<error>Assertion Failed: Folder not found in user storage: " . $vfsPath . "</error>");
-                $this->folderService->delete($folder->getId(), 'admin');
+                $this->deleteFolderSafely($folder->getId());
                 return Command::FAILURE;
             }
             
@@ -192,13 +209,13 @@ class TestAppCommand extends Command {
             
             if (count($children) === 0) {
                 $output->writeln("<error>Assertion Failed: No files created in user storage folder: " . $vfsPath . "</error>");
-                $this->folderService->delete($folder->getId(), 'admin');
+                $this->deleteFolderSafely($folder->getId());
                 return Command::FAILURE;
             }
             $output->writeln("   [OK] File successfully written to Nextcloud storage");
         } catch (\Exception $e) {
             $output->writeln("<error>Verification failed: " . $e->getMessage() . "</error>");
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             return Command::FAILURE;
         }
 
@@ -212,7 +229,7 @@ class TestAppCommand extends Command {
             }
             
             // Delete folder settings from db
-            $this->folderService->delete($folder->getId(), 'admin');
+            $this->deleteFolderSafely($folder->getId());
             $output->writeln("   [OK] Database settings cleaned up");
         } catch (\Exception $e) {
             $output->writeln("<warning>Cleanup failed: " . $e->getMessage() . "</warning>");
@@ -223,5 +240,21 @@ class TestAppCommand extends Command {
         $output->writeln("=================================================");
         
         return Command::SUCCESS;
+    }
+
+    /**
+     * Safely pause the folder config before calling FolderService::delete
+     */
+    private function deleteFolderSafely(int $folderId): void {
+        try {
+            $this->folderService->update($folderId, 'admin', ['is_active' => false]);
+        } catch (\Exception $e) {
+            // Ignore error if folder doesn't exist
+        }
+        try {
+            $this->folderService->delete($folderId, 'admin');
+        } catch (\Exception $e) {
+            // Ignore error
+        }
     }
 }
