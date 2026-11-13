@@ -604,6 +604,39 @@
 			<p class="text-xs text-gray-400 mt-2 pointer-events-none">Max file size: {folderInfo.max_upload_size_mb}MB</p>
 		</label>
 
+		<!-- Download / Shared Folder Link (displayed at the top of uploads so no scrolling is needed) -->
+		{#if showDownloadLink && folderInfo.nextcloud_share_url}
+			<div class="mt-6 bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+				<svg class="w-12 h-12 text-green-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+				</svg>
+				<h3 class="text-xl font-semibold text-green-800 mb-2">
+					{#if uploadComplete && successCount > 0}
+						{successCount} file(s) uploaded successfully!
+					{:else if activeFiles.length > 0}
+						Uploading & converting files ({successCount}/{files.length} completed)...
+					{:else}
+						Shared Photo Folder Ready
+					{/if}
+				</h3>
+				<p class="text-green-700 mb-4">
+					{#if uploadComplete && successCount > 0}
+						Your photos and videos have been converted and saved to the shared folder.
+					{:else}
+						You can already open the shared folder in a new tab to view and download uploaded photos.
+					{/if}
+				</p>
+				<a
+					href={folderInfo.nextcloud_share_url}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="btn btn-primary inline-block"
+				>
+					View & Download Photos ↗
+				</a>
+			</div>
+		{/if}
+
 		<!-- File List -->
 		{#if files.length > 0}
 			<div class="mt-6 space-y-2">
@@ -776,39 +809,6 @@
 						{/each}
 					</div>
 				{/if}
-			</div>
-		{/if}
-
-		<!-- Download / Shared Folder Link (shown once any upload is started, completed, aborted, or after page reload) -->
-		{#if showDownloadLink && folderInfo.nextcloud_share_url}
-			<div class="mt-8 bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-				<svg class="w-12 h-12 text-green-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-				</svg>
-				<h3 class="text-xl font-semibold text-green-800 mb-2">
-					{#if uploadComplete && successCount > 0}
-						{successCount} file(s) uploaded successfully!
-					{:else if activeFiles.length > 0}
-						Uploading & converting files ({successCount}/{files.length} completed)...
-					{:else}
-						Shared Photo Folder Ready
-					{/if}
-				</h3>
-				<p class="text-green-700 mb-4">
-					{#if uploadComplete && successCount > 0}
-						Your photos and videos have been converted and saved to the shared folder.
-					{:else}
-						You can already open the shared folder in a new tab to view and download uploaded photos.
-					{/if}
-				</p>
-				<a
-					href={folderInfo.nextcloud_share_url}
-					target="_blank"
-					rel="noopener noreferrer"
-					class="btn btn-primary inline-block"
-				>
-					View & Download Photos ↗
-				</a>
 			</div>
 		{/if}
 
