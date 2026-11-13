@@ -61,6 +61,12 @@
 		files.every((f) => f.status === 'success' || f.status === 'error');
 	$: successCount = files.filter((f) => f.status === 'success').length;
 	$: errorCount = files.filter((f) => f.status === 'error').length;
+	$: pendingOrUploadingCount = files.filter(
+		(f) => f.status === 'pending' || f.status === 'uploading'
+	).length;
+	$: processingCount = files.filter((f) => f.status === 'processing').length;
+	$: allUploadedAndProcessing =
+		files.length > 0 && pendingOrUploadingCount === 0 && processingCount > 0;
 	$: activeFiles = files.filter((f) => f.status !== 'success' && f.status !== 'error');
 	$: completedFiles = files.filter((f) => f.status === 'success' || f.status === 'error');
 	$: hasCompletedFiles = completedFiles.length > 0;
@@ -569,6 +575,69 @@
 					{folderInfo.readme_message}
 				</div>
 			{/if}
+		</div>
+
+		<!-- Top Info Alert: Safe Tab Closing Notice -->
+		<div
+			class={`mb-6 flex items-start gap-3 rounded-xl border p-4 text-sm ${
+				allUploadedAndProcessing
+					? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+					: pendingOrUploadingCount > 0
+						? 'bg-amber-50 border-amber-200 text-amber-900'
+						: 'bg-blue-50 border-blue-200 text-blue-900'
+			}`}
+			role="alert"
+		>
+			<svg
+				class={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+					allUploadedAndProcessing
+						? 'text-emerald-600'
+						: pendingOrUploadingCount > 0
+							? 'text-amber-600'
+							: 'text-blue-600'
+				}`}
+				fill="none"
+				stroke="currentColor"
+				viewBox="0 0 24 24"
+			>
+				{#if allUploadedAndProcessing}
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+					/>
+				{:else}
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+					/>
+				{/if}
+			</svg>
+			<div>
+				{#if allUploadedAndProcessing}
+					<p class="font-semibold">All files uploaded — safe to close this tab!</p>
+					<p class="mt-0.5">
+						All files have been uploaded and cached on the server ({processingCount} file(s) currently in the
+						<span class="font-medium">"Converting &amp; saving..."</span> step). You can safely close this tab — conversion and saving will finish automatically in the background.
+					</p>
+				{:else if pendingOrUploadingCount > 0}
+					<p class="font-semibold">
+						Uploading to server ({files.length - pendingOrUploadingCount}/{files.length} uploaded)...
+					</p>
+					<p class="mt-0.5">
+						Please keep this tab open while files are still uploading. Once everything is uploaded and in the
+						<span class="font-medium">"Converting &amp; saving..."</span> step, you can safely close this tab because the upload is cached on the server.
+					</p>
+				{:else}
+					<p class="font-semibold">Background processing info</p>
+					<p class="mt-0.5">
+						Once everything is uploaded and in the <span class="font-medium">"Converting &amp; saving..."</span> step, you can safely close this tab — your upload is cached on the server and will finish automatically.
+					</p>
+				{/if}
+			</div>
 		</div>
 
 		<!-- Drop Zone -->
