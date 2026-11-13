@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
 
@@ -40,7 +41,7 @@
 
 	async function setConsent(type: 'essential' | 'rejected') {
 		try {
-			await fetch('/api/auth/cookie-consent/', {
+			await fetch(`${base}/api/auth/cookie-consent/`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -85,7 +86,7 @@
 								<li>• Uploaded files are stored in <strong>your Nextcloud</strong></li>
 								<li>• No data is shared with third parties</li>
 							</ul>
-							<a href="/api/auth/privacy/" target="_blank" class="inline-block mt-2 text-primary-600 hover:underline">
+							<a href="{base}/api/auth/privacy/" target="_blank" class="inline-block mt-2 text-primary-600 hover:underline">
 								Full Privacy Policy →
 							</a>
 						</div>

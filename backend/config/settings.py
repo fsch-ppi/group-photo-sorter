@@ -4,6 +4,7 @@ Django settings for photo_import_sorter project.
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -16,12 +17,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY',
                        'django-insecure-change-me-in-production')
 DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() in ('true', '1', 'yes')
-ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS',
-                          'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = list(dict.fromkeys(
+    [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,kaenguin.de').split(',') if h.strip()]
+    + ['localhost', '127.0.0.1', 'kaenguin.de']
+))
 
-# Trust X-Forwarded-Host header from nginx proxy
+# Trust X-Forwarded-Host header from Apache/nginx reverse proxy
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Subpath deployment prefix (default: /photosorter)
+FORCE_SCRIPT_NAME = os.getenv('FORCE_SCRIPT_NAME', '/photosorter') or None
 
 # Application definition
 INSTALLED_APPS = [
@@ -138,13 +144,22 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 20,
 }
 
-# CORS settings
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+# CORS & Frontend URL settings
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://kaenguin.de/photosorter').rstrip('/')
+_parsed_frontend = urlparse(FRONTEND_URL)
+_FRONTEND_ORIGIN = (
+    f"{_parsed_frontend.scheme}://{_parsed_frontend.netloc}"
+    if _parsed_frontend.scheme and _parsed_frontend.netloc
+    else 'https://kaenguin.de'
+)
+
 CORS_ALLOWED_ORIGINS = list(dict.fromkeys([
-    FRONTEND_URL,
+    _FRONTEND_ORIGIN,
+    'https://kaenguin.de',
     'https://sz-verwaltung.ddns.net:18443',
     'https://sz-verwaltung.ddns.net:8444',
     'http://localhost:5173',
+    'http://localhost:18080',
     'http://localhost:18443',
     'https://localhost:18443',
 ]))
@@ -152,10 +167,12 @@ CORS_ALLOW_CREDENTIALS = True
 
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([
-    FRONTEND_URL,
+    _FRONTEND_ORIGIN,
+    'https://kaenguin.de',
     'https://sz-verwaltung.ddns.net:18443',
     'https://sz-verwaltung.ddns.net:8444',
     'http://localhost:5173',
+    'http://localhost:18080',
     'http://localhost:18443',
     'https://localhost:18443',
 ]))
@@ -168,7 +185,7 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = not DEBUG
 
 # Nextcloud OAuth2 Configuration
-NEXTCLOUD_URL = os.getenv('NEXTCLOUD_URL', '')
+NEXTCLOUD_URL = os.getenv('NEXTCLOUD_URL', '').rstrip('/')
 SOCIAL_AUTH_NEXTCLOUD_KEY = os.getenv('NEXTCLOUD_CLIENT_ID', '')
 SOCIAL_AUTH_NEXTCLOUD_SECRET = os.getenv('NEXTCLOUD_CLIENT_SECRET', '')
 
@@ -178,9 +195,11 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
 
+_SCRIPT_PREFIX = (FORCE_SCRIPT_NAME or '').rstrip('/')
 SOCIAL_AUTH_URL_NAMESPACE = 'social'
-SOCIAL_AUTH_LOGIN_REDIRECT_URL = '/api/auth/callback/'
-SOCIAL_AUTH_LOGIN_ERROR_URL = '/login/error/'
+SOCIAL_AUTH_REDIRECT_IS_HTTPS = not DEBUG
+SOCIAL_AUTH_LOGIN_REDIRECT_URL = f'{_SCRIPT_PREFIX}/api/auth/callback/'
+SOCIAL_AUTH_LOGIN_ERROR_URL = f'{_SCRIPT_PREFIX}/login/error/'
 SOCIAL_AUTH_PIPELINE = (
     'social_core.pipeline.social_auth.social_details',
     'social_core.pipeline.social_auth.social_uid',

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { auth, type User } from '$lib/api';
 	import { onMount } from 'svelte';
 
@@ -37,9 +38,9 @@
 
 		{#if !loading}
 			{#if user}
-				<a href="/dashboard" class="btn btn-primary text-lg px-8 py-3"> Go to Dashboard </a>
+				<a href="{base}/dashboard" class="btn btn-primary text-lg px-8 py-3"> Go to Dashboard </a>
 			{:else}
-				<a href="/api/auth/login/" class="btn btn-primary text-lg px-8 py-3">
+				<a href="{base}/api/auth/login/" class="btn btn-primary text-lg px-8 py-3">
 					Login with Nextcloud
 				</a>
 			{/if}

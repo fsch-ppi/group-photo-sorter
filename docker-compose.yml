@@ -6,7 +6,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,7 +31,7 @@ services:
       - temp_uploads:/tmp/photo_import_uploads
       - sqlite_data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/auth/config/"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/auth/config/" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -67,7 +67,7 @@ services:
     #       cpus: '${CELERY_CPU_LIMIT:-2}'
     #       memory: ${CELERY_MEMORY_LIMIT:-2G}
 
-  # Celery beat for scheduled tasks (temp file cleanup)
+    # Celery beat for scheduled tasks (temp file cleanup)
   celery-beat:
     build:
       context: .
@@ -90,7 +90,7 @@ services:
     networks:
       - internal
 
-  # Frontend (Svelte/nginx with SSL)
+  # Frontend (Svelte/nginx behind Apache reverse proxy)
   frontend:
     build:
       context: .
@@ -98,10 +98,6 @@ services:
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-18080}:18080"
-      - "${HTTPS_PORT:-18443}:18443"
-    volumes:
-      - ${SSL_CERT_PATH:-./certs/fullchain.pem}:/etc/nginx/ssl/fullchain.pem:ro
-      - ${SSL_KEY_PATH:-./certs/privkey.pem}:/etc/nginx/ssl/privkey.pem:ro
     depends_on:
       - backend
     networks:

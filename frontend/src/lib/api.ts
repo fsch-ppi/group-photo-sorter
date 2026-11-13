@@ -2,7 +2,9 @@
  * API client for backend communication
  */
 
-const API_BASE = '/api';
+import { base } from '$app/paths';
+
+const API_BASE = `${base}/api`;
 
 // Get CSRF token from cookie
 function getCsrfToken(): string | null {

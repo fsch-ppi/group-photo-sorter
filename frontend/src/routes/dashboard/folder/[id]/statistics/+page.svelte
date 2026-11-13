@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { page } from '$app/stores';
 	import { folders, type FolderStatistics, type PhotoFolder } from '$lib/api';
 	import { onMount } from 'svelte';
@@ -47,7 +48,7 @@
 </svelte:head>
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-	<a href="/dashboard" class="text-primary-600 hover:text-primary-700 mb-4 inline-block">
+	<a href="{base}/dashboard" class="text-primary-600 hover:text-primary-700 mb-4 inline-block">
 		← Back to Dashboard
 	</a>
 

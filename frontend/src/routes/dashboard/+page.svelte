@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { folders, type PhotoFolder, type NamingFormat } from '$lib/api';
 	import { onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
@@ -436,7 +437,7 @@
 					</div>
 
 					<!-- Statistics Link -->
-					<a href="/dashboard/folder/{selectedFolder.id}/statistics" class="block bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors">
+					<a href="{base}/dashboard/folder/{selectedFolder.id}/statistics" class="block bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors">
 						<div class="flex justify-between items-center">
 							<div>
 								<p class="font-medium">View Statistics</p>

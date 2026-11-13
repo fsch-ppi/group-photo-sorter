@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { auth, type User } from '$lib/api';
 	import { onMount } from 'svelte';
 	import CookieConsent from '$lib/CookieConsent.svelte';
@@ -24,7 +25,7 @@
 		try {
 			await auth.logout();
 			user = null;
-			window.location.href = '/';
+			window.location.href = `${base}/`;
 		} catch (e) {
 			console.error('Logout failed:', e);
 		}
@@ -36,7 +37,7 @@
 	<header class="bg-white shadow-sm">
 		<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 			<div class="flex justify-between items-center h-16">
-				<a href="/" class="flex items-center space-x-2">
+				<a href="{base}/" class="flex items-center space-x-2">
 					<svg
 						class="w-8 h-8 text-primary-600"
 						fill="none"
@@ -56,12 +57,12 @@
 				{#if !loading}
 					<nav class="flex items-center space-x-4">
 						{#if user}
-							<a href="/dashboard" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+							<a href="{base}/dashboard" class="text-gray-600 hover:text-gray-900">Dashboard</a>
 							<span class="text-gray-400">|</span>
 							<span class="text-gray-600">{user.username}</span>
 							<button on:click={handleLogout} class="btn btn-secondary text-sm"> Logout </button>
 						{:else}
-							<a href="/api/auth/login/" class="btn btn-primary"> Login with Nextcloud </a>
+							<a href="{base}/api/auth/login/" class="btn btn-primary"> Login with Nextcloud </a>
 						{/if}
 					</nav>
 				{/if}
@@ -79,7 +80,7 @@
 		<div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
 			<p class="text-center text-gray-500 text-sm">
 				Photo Import Sorter &copy; {new Date().getFullYear()} · 
-				<a href="/api/auth/privacy/" target="_blank" class="hover:underline">Privacy Policy</a>
+				<a href="{base}/api/auth/privacy/" target="_blank" class="hover:underline">Privacy Policy</a>
 			</p>
 		</div>
 	</footer>
