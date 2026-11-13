@@ -427,7 +427,7 @@
 							<div class="flex-1">
 								<p class="font-medium">Storage Limit</p>
 								<div class="flex items-center space-x-2 mt-2">
-									<input type="number" class="input w-24" bind:value={selectedFolder.storage_limit_gb} placeholder="No limit" min="0.1" step="0.1" />
+									<input type="number" class="input w-48" bind:value={selectedFolder.storage_limit_gb} placeholder="No limit" min="0.1" step="0.1" />
 									<span class="text-sm text-gray-600">GB</span>
 									<button class="btn btn-primary btn-sm" on:click={updateStorageLimit}>Save</button>
 								</div>

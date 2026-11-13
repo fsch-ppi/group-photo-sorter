@@ -34,6 +34,7 @@
 	let filterStatus: 'all' | 'active' | 'success' | 'error' = 'all';
 	let searchQuery = '';
 	let uploadIdCounter = 0;
+	let hasUploadActivity = false;
 
 	// Generate stable ID for file uploads
 	function generateUploadId(): string {
@@ -63,6 +64,9 @@
 	$: activeFiles = files.filter((f) => f.status !== 'success' && f.status !== 'error');
 	$: completedFiles = files.filter((f) => f.status === 'success' || f.status === 'error');
 	$: hasCompletedFiles = completedFiles.length > 0;
+	$: showDownloadLink = Boolean(
+		folderInfo?.nextcloud_share_url && (hasUploadActivity || files.length > 0 || successCount > 0)
+	);
 
 	// Filtered files based on status and search
 	$: filteredActiveFiles = activeFiles.filter((f) => {
@@ -120,6 +124,14 @@
 
 	// Persist file state to localStorage
 	function saveSessionState() {
+		if (files.length > 0) {
+			hasUploadActivity = true;
+			try {
+				localStorage.setItem(`upload_has_activity_${shareToken}`, '1');
+			} catch {
+				// Ignore storage errors
+			}
+		}
 		if (!sessionId) return;
 		const state = files.map((f) => ({
 			id: f.id,
@@ -172,6 +184,10 @@
 
 		// Restore session if exists (prefer server Redis session, fallback to localStorage)
 		try {
+			if (localStorage.getItem(`upload_has_activity_${token}`) === '1') {
+				hasUploadActivity = true;
+			}
+
 			let savedState = null;
 			if (sessionId) {
 				try {
@@ -197,6 +213,9 @@
 			}
 
 			if (savedState && savedState.length > 0) {
+				hasUploadActivity = true;
+				localStorage.setItem(`upload_has_activity_${token}`, '1');
+
 				for (const item of savedState) {
 					const itemId = item.id || generateUploadId();
 					const normalizedStatus =
@@ -246,6 +265,23 @@
 						files = [...files, fileUpload];
 
 						pollTaskStatusById(itemId, item.taskId);
+					} else {
+						// File was mid-upload or queued when connection was aborted / page reloaded
+						const placeholderFile = new File([], item.name, {
+							type: 'application/octet-stream'
+						});
+						Object.defineProperty(placeholderFile, 'size', { value: item.size });
+
+						files = [
+							...files,
+							{
+								id: itemId,
+								file: placeholderFile,
+								status: 'error',
+								progress: 0,
+								error: item.error || 'Upload interrupted (connection aborted or page reloaded)'
+							}
+						];
 					}
 				}
 
@@ -620,9 +656,14 @@
 								{showCompletedFiles ? 'Hide' : 'Show'}
 							</button>
 						{/if}
-						{#if uploadComplete && successCount > 0 && folderInfo.nextcloud_share_url}
-							<a href={folderInfo.nextcloud_share_url} target="_blank" rel="noopener" class="btn btn-primary text-xs py-1 px-2">
-								View Photos →
+						{#if showDownloadLink && folderInfo.nextcloud_share_url}
+							<a
+								href={folderInfo.nextcloud_share_url}
+								target="_blank"
+								rel="noopener noreferrer"
+								class="btn btn-primary text-xs py-1 px-2"
+							>
+								View Photos ↗
 							</a>
 						{/if}
 					</div>
@@ -736,29 +777,39 @@
 					</div>
 				{/if}
 			</div>
+		{/if}
 
-			<!-- Success Message -->
-			{#if uploadComplete && successCount > 0 && folderInfo.nextcloud_share_url}
-				<div class="mt-8 bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-					<svg class="w-12 h-12 text-green-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-					</svg>
-					<h3 class="text-xl font-semibold text-green-800 mb-2">
+		<!-- Download / Shared Folder Link (shown once any upload is started, completed, aborted, or after page reload) -->
+		{#if showDownloadLink && folderInfo.nextcloud_share_url}
+			<div class="mt-8 bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+				<svg class="w-12 h-12 text-green-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+				</svg>
+				<h3 class="text-xl font-semibold text-green-800 mb-2">
+					{#if uploadComplete && successCount > 0}
 						{successCount} file(s) uploaded successfully!
-					</h3>
-					<p class="text-green-700 mb-4">
+					{:else if activeFiles.length > 0}
+						Uploading & converting files ({successCount}/{files.length} completed)...
+					{:else}
+						Shared Photo Folder Ready
+					{/if}
+				</h3>
+				<p class="text-green-700 mb-4">
+					{#if uploadComplete && successCount > 0}
 						Your photos and videos have been converted and saved to the shared folder.
-					</p>
-					<a
-						href={folderInfo.nextcloud_share_url}
-						target="_blank"
-						rel="noopener"
-						class="btn btn-primary inline-block"
-					>
-						View & Download Photos
-					</a>
-				</div>
-			{/if}
+					{:else}
+						You can already open the shared folder in a new tab to view and download uploaded photos.
+					{/if}
+				</p>
+				<a
+					href={folderInfo.nextcloud_share_url}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="btn btn-primary inline-block"
+				>
+					View & Download Photos ↗
+				</a>
+			</div>
 		{/if}
 
 		<!-- Info -->
