@@ -104,14 +104,14 @@ class PhotoFolder(models.Model):
     def upload_url(self):
         """Get the upload URL for this folder."""
         from django.conf import settings
-        return f"{settings.FRONTEND_URL}/upload/{self.share_token}"
+        return f"{settings.FRONTEND_URL.rstrip('/')}/upload/{self.share_token}"
 
     @property
     def nextcloud_share_url(self):
         """Get the Nextcloud share URL if available."""
         if self.nextcloud_share_token:
             from django.conf import settings
-            return f"{settings.NEXTCLOUD_URL}/s/{self.nextcloud_share_token}"
+            return f"{settings.NEXTCLOUD_URL.rstrip('/')}/index.php/s/{self.nextcloud_share_token}"
         return None
 
 
