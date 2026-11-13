@@ -86,7 +86,7 @@
 								<li>• Uploaded files are stored in <strong>your Nextcloud</strong></li>
 								<li>• No data is shared with third parties</li>
 							</ul>
-							<a href="{base}/api/auth/privacy/" target="_blank" class="inline-block mt-2 text-primary-600 hover:underline">
+							<a href="{base}/api/auth/privacy/" data-sveltekit-reload rel="external" target="_blank" class="inline-block mt-2 text-primary-600 hover:underline">
 								Full Privacy Policy →
 							</a>
 						</div>

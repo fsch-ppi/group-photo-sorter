@@ -62,7 +62,7 @@
 							<span class="text-gray-600">{user.username}</span>
 							<button on:click={handleLogout} class="btn btn-secondary text-sm"> Logout </button>
 						{:else}
-							<a href="{base}/api/auth/login/" class="btn btn-primary"> Login with Nextcloud </a>
+							<a href="{base}/api/auth/login/" data-sveltekit-reload rel="external" class="btn btn-primary"> Login with Nextcloud </a>
 						{/if}
 					</nav>
 				{/if}
@@ -80,7 +80,7 @@
 		<div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
 			<p class="text-center text-gray-500 text-sm">
 				Photo Import Sorter &copy; {new Date().getFullYear()} · 
-				<a href="{base}/api/auth/privacy/" target="_blank" class="hover:underline">Privacy Policy</a>
+				<a href="{base}/api/auth/privacy/" data-sveltekit-reload rel="external" target="_blank" class="hover:underline">Privacy Policy</a>
 			</p>
 		</div>
 	</footer>

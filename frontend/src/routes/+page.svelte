@@ -40,7 +40,7 @@
 			{#if user}
 				<a href="{base}/dashboard" class="btn btn-primary text-lg px-8 py-3"> Go to Dashboard </a>
 			{:else}
-				<a href="{base}/api/auth/login/" class="btn btn-primary text-lg px-8 py-3">
+				<a href="{base}/api/auth/login/" data-sveltekit-reload rel="external" class="btn btn-primary text-lg px-8 py-3">
 					Login with Nextcloud
 				</a>
 			{/if}

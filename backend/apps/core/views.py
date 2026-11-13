@@ -44,8 +44,9 @@ class AuthStatusView(APIView):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def login_redirect(request):
-    """Redirect to Nextcloud OAuth login."""
-    return redirect('social:begin', 'nextcloud')
+    """Redirect directly to Nextcloud OAuth authorize URL."""
+    from social_django.views import auth as social_auth_begin
+    return social_auth_begin(request._request, 'nextcloud')
 
 
 @api_view(['GET'])
