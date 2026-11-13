@@ -6,7 +6,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -23,14 +23,15 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - SQLITE_DB_PATH=/app/data/db.sqlite3
     depends_on:
       redis:
         condition: service_healthy
     volumes:
       - temp_uploads:/tmp/photo_import_uploads
-      - sqlite_data:/app/backend
+      - sqlite_data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/auth/config/"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/auth/config/" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -47,6 +48,7 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - SQLITE_DB_PATH=/app/data/db.sqlite3
     depends_on:
       redis:
         condition: service_healthy
@@ -54,7 +56,7 @@ services:
         condition: service_started
     volumes:
       - temp_uploads:/tmp/photo_import_uploads
-      - sqlite_data:/app/backend
+      - sqlite_data:/app/data
     networks:
       - internal
     # Resource limits (enabled via ENABLE_RESOURCE_LIMITS=true in .env)
@@ -65,7 +67,7 @@ services:
     #       cpus: '${CELERY_CPU_LIMIT:-2}'
     #       memory: ${CELERY_MEMORY_LIMIT:-2G}
 
-  # Celery beat for scheduled tasks (temp file cleanup)
+    # Celery beat for scheduled tasks (temp file cleanup)
   celery-beat:
     build:
       context: .
@@ -76,13 +78,14 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - SQLITE_DB_PATH=/app/data/db.sqlite3
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_started
     volumes:
-      - sqlite_data:/app/backend
+      - sqlite_data:/app/data
       - celerybeat_data:/var/lib/celery
     networks:
       - internal
@@ -94,8 +97,8 @@ services:
       dockerfile: docker/frontend/Dockerfile
     restart: unless-stopped
     ports:
-      - "8081:8081"
-      - "8444:8444"
+      - "${HTTP_PORT:-18080}:18080"
+      - "${HTTPS_PORT:-18443}:18443"
     volumes:
       - ${SSL_CERT_PATH:-./certs/fullchain.pem}:/etc/nginx/ssl/fullchain.pem:ro
       - ${SSL_KEY_PATH:-./certs/privkey.pem}:/etc/nginx/ssl/privkey.pem:ro

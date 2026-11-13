@@ -2,16 +2,11 @@
  * API client for backend communication
  */
 
-function getApiBase(): string {
-	const base = typeof window !== 'undefined' && (window as any).groupPhotoSorter?.apiBase;
-	if (base) {
-		return `${base}/api/v1`;
-	}
-	return '/api/v1';
-}
+const API_BASE = '/api';
 
 // Get CSRF token from cookie
 function getCsrfToken(): string | null {
+	if (typeof document === 'undefined') return null;
 	const name = 'csrftoken';
 	const cookies = document.cookie.split(';');
 	for (const cookie of cookies) {
@@ -83,6 +78,7 @@ export interface FolderStatistics {
 export interface FolderInfo {
 	name: string;
 	event_name: string;
+	readme_message?: string;
 	nextcloud_share_url: string | null;
 	supported_image_formats: string[];
 	supported_video_formats: string[];
@@ -118,23 +114,17 @@ export interface PaginatedResponse<T> {
 }
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+	const csrfToken = getCsrfToken();
 	const headers: Record<string, string> = {
 		'Content-Type': 'application/json',
 		...(options.headers as Record<string, string>)
 	};
-	
-	// Add Nextcloud CSRF request token if available (required for NC session auth)
-	if (typeof window !== 'undefined' && (window as any).OC?.requestToken) {
-		headers['requesttoken'] = (window as any).OC.requestToken;
-	} else {
-		// Fallback to CSRF token from cookie for standalone Django backend
-		const csrfToken = getCsrfToken();
-		if (csrfToken && options.method && options.method !== 'GET') {
-			headers['X-CSRFToken'] = csrfToken;
-		}
+
+	if (csrfToken && options.method && options.method !== 'GET') {
+		headers['X-CSRFToken'] = csrfToken;
 	}
-	
-	const response = await fetch(`${getApiBase()}${url}`, {
+
+	const response = await fetch(`${API_BASE}${url}`, {
 		...options,
 		credentials: 'include',
 		headers
@@ -200,7 +190,7 @@ export const folders = {
 // Upload API (public, no auth required)
 export const upload = {
 	folderInfo: async (shareToken: string): Promise<FolderInfo> => {
-		const response = await fetch(`${getApiBase()}/upload/${shareToken}/info/`);
+		const response = await fetch(`${API_BASE}/upload/${shareToken}/info/`);
 		if (!response.ok) {
 			const error = await response.json().catch(() => ({ error: 'Folder not found' }));
 			throw new Error(error.error || 'Folder not found');
@@ -208,22 +198,20 @@ export const upload = {
 		return response.json();
 	},
 
-	uploadFile: async (shareToken: string, file: File, sessionId?: string | null): Promise<UploadResult> => {
+	uploadFile: async (
+		shareToken: string,
+		file: File,
+		sessionId?: string | null
+	): Promise<UploadResult> => {
 		const formData = new FormData();
 		formData.append('file', file);
 		if (sessionId) {
 			formData.append('session_id', sessionId);
 		}
 
-		const headers: Record<string, string> = {};
-		if (typeof window !== 'undefined' && (window as any).OC?.requestToken) {
-			headers['requesttoken'] = (window as any).OC.requestToken;
-		}
-
-		const response = await fetch(`${getApiBase()}/upload/${shareToken}/`, {
+		const response = await fetch(`${API_BASE}/upload/${shareToken}/`, {
 			method: 'POST',
-			body: formData,
-			headers
+			body: formData
 		});
 
 		if (!response.ok) {
@@ -235,12 +223,20 @@ export const upload = {
 	},
 
 	taskStatus: async (taskId: string): Promise<TaskStatus> => {
-		const response = await fetch(`${getApiBase()}/upload/task/${taskId}/`);
+		const response = await fetch(`${API_BASE}/upload/task/${taskId}/`);
+		if (!response.ok) {
+			throw new Error('Failed to fetch task status');
+		}
 		return response.json();
 	},
 
-	sessionStatus: async (shareToken: string, sessionId: string): Promise<{ files: any[] }> => {
-		const response = await fetch(`${getApiBase()}/upload/${shareToken}/session/${sessionId}/`);
+	sessionStatus: async (
+		shareToken: string,
+		sessionId: string
+	): Promise<{ files: any[] }> => {
+		const response = await fetch(
+			`${API_BASE}/upload/${shareToken}/session/${sessionId}/`
+		);
 		if (!response.ok) {
 			const error = await response.json().catch(() => ({ error: 'Session not found' }));
 			throw new Error(error.error || 'Session not found');

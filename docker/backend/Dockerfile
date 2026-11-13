@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    curl \
     ffmpeg \
     libraw-dev \
     libjpeg-dev \
@@ -31,9 +32,9 @@ ENV DJANGO_SETTINGS_MODULE=config.settings
 # Create app user with fixed UID for volume sharing with celery
 RUN groupadd -r -g 1000 app && useradd -r -u 1000 -g app app
 
-# Create temp upload directory with proper permissions
-RUN mkdir -p /tmp/photo_import_uploads && \
-    chown -R app:app /tmp/photo_import_uploads /app
+# Create temp upload and persistent data directories with proper permissions
+RUN mkdir -p /tmp/photo_import_uploads /app/data && \
+    chown -R app:app /tmp/photo_import_uploads /app/data /app
 
 WORKDIR /app/backend
 

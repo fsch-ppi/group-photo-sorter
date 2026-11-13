@@ -2,27 +2,34 @@
 Celery tasks for file processing.
 """
 
-import json
+import base64
+import logging
 import os
 import time
-import glob
 from datetime import datetime, timedelta
-from pathlib import Path
+from typing import Set
+
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError
 from django.conf import settings
-from django.core.cache import cache
 from django.utils import timezone
 
+from apps.core.cache_utils import (
+    redis_lock,
+    safe_cache_delete,
+    safe_cache_get,
+    safe_cache_set,
+)
 from apps.folders.models import PhotoFolder, UploadStatistics
 from apps.folders.nextcloud_client import NextcloudClient
 from .converters import (
     convert_image_to_jpeg,
     convert_video_to_mp4,
     generate_filename,
-    get_unique_filename
+    get_unique_filename,
 )
 
+logger = logging.getLogger(__name__)
 
 # GDPR: IP address retention period
 IP_RETENTION_DAYS = 30
@@ -30,16 +37,13 @@ IP_RETENTION_DAYS = 30
 # Batch settings for image uploads
 IMAGE_BATCH_SIZE = 20
 IMAGE_BATCH_TIMEOUT = 30  # seconds to wait before flushing partial batch
+IMAGE_BATCH_CACHE_TTL = 86400  # 24 hours (prevents premature Redis eviction)
 
 
 @shared_task
 def cleanup_temp_files():
     """
     Clean up old temporary files that weren't properly deleted.
-
-    This runs periodically to ensure temp files don't accumulate.
-    Files are normally deleted immediately after processing, but this
-    catches any orphaned files from failed tasks.
     """
     temp_dir = settings.TEMP_UPLOAD_DIR
     max_age_hours = settings.TEMP_FILE_MAX_AGE_HOURS
@@ -58,8 +62,7 @@ def cleanup_temp_files():
                     filepath.unlink()
                     cleaned_count += 1
             except Exception as e:
-                # Log but don't fail the task
-                print(f"Failed to clean up {filepath}: {e}")
+                logger.warning(f"Failed to clean up {filepath}: {e}")
 
     return {'cleaned': cleaned_count, 'max_age_hours': max_age_hours}
 
@@ -68,24 +71,19 @@ def cleanup_temp_files():
 def anonymize_old_ip_addresses():
     """
     GDPR compliance: Anonymize IP addresses older than 30 days.
-
-    This task runs daily and replaces real IP addresses with
-    anonymized versions (e.g., "192.168.1.100" -> "xxx.xxx.xxx.xxx")
-    for upload statistics older than the retention period.
     """
     cutoff_date = timezone.now() - timedelta(days=IP_RETENTION_DAYS)
 
-    # Find all records with non-anonymized IPs older than retention period
     old_records = UploadStatistics.objects.filter(
         uploaded_at__lt=cutoff_date
+    ).exclude(
+        uploader_ip='0.0.0.0'
     ).exclude(
         uploader_ip='xxx.xxx.xxx.xxx'
     )
 
     count = old_records.count()
-
-    # Anonymize the IP addresses
-    old_records.update(uploader_ip='xxx.xxx.xxx.xxx')
+    old_records.update(uploader_ip='0.0.0.0')
 
     return {
         'anonymized_count': count,
@@ -99,9 +97,14 @@ def _get_batch_key(folder_id: int) -> str:
     return f"image_batch:{folder_id}"
 
 
-def _get_batch_lock_key(folder_id: int) -> str:
-    """Get Redis lock key for batch processing."""
-    return f"image_batch_lock:{folder_id}"
+def _get_batch_mutex_name(folder_id: int) -> str:
+    """Get distributed lock name for reading/modifying image batch."""
+    return f"image_batch_mutex:{folder_id}"
+
+
+def _get_batch_flush_lock_name(folder_id: int) -> str:
+    """Get distributed lock name for flushing image batch."""
+    return f"image_batch_flush:{folder_id}"
 
 
 @shared_task(bind=True, max_retries=3)
@@ -113,29 +116,26 @@ def process_image_for_batch(
     uploader_ip: str
 ):
     """
-    Convert an image and add it to the batch queue.
-
-    Images are converted immediately but uploaded in batches of 20
-    to avoid Nextcloud rate limiting.
+    Convert an image and add it to the batch queue safely using distributed Redis locks.
     """
     start_time = time.time()
 
     try:
         folder = PhotoFolder.objects.select_related(
-            'owner__profile').get(id=folder_id)
+            'owner__profile'
+        ).get(id=folder_id)
         profile = folder.owner.profile
 
         if not profile.nextcloud_access_token:
             raise RuntimeError("Owner's Nextcloud access token not available")
 
-        # Convert the image
         converted_bytes, metadata = convert_image_to_jpeg(
             temp_file_path,
             quality=folder.jpeg_quality
         )
         file_date = metadata.get('exif_date')
+        mtime = int(file_date.timestamp()) if file_date else int(time.time())
 
-        # Generate filename (we'll verify uniqueness during batch upload)
         new_filename = generate_filename(
             folder,
             original_filename,
@@ -145,10 +145,10 @@ def process_image_for_batch(
 
         conversion_time = time.time() - start_time
 
-        # Create the batch item
         batch_item = {
+            'item_id': f"{self.request.id or int(time.time() * 1000)}_{os.path.basename(temp_file_path)}",
             'remote_path': f"{folder.nextcloud_folder_path}/{new_filename}",
-            'content_b64': __import__('base64').b64encode(converted_bytes).decode('ascii'),
+            'content_b64': base64.b64encode(converted_bytes).decode('ascii'),
             'content_type': 'image/jpeg',
             'original_filename': original_filename,
             'new_filename': new_filename,
@@ -156,31 +156,61 @@ def process_image_for_batch(
             'original_size': metadata['original_size'],
             'converted_size': metadata['converted_size'],
             'conversion_time': conversion_time,
-            'mtime': int(time.time()),
+            'mtime': mtime,
         }
 
-        # Add to batch in Redis
         batch_key = _get_batch_key(folder_id)
+        with redis_lock(_get_batch_mutex_name(folder_id), timeout=15, wait_timeout=10.0) as acquired:
+            if not acquired:
+                # If Redis lock is unavailable, fall back to direct upload so the file is never lost
+                client = NextcloudClient(profile.nextcloud_access_token, user_profile=profile)
+                unique_filename = get_unique_filename(folder, new_filename, client)
+                remote_path = f"{folder.nextcloud_folder_path}/{unique_filename}"
+                up_res = client.upload_file(remote_path, converted_bytes, 'image/jpeg', mtime=mtime)
+                if not up_res['success']:
+                    raise RuntimeError(f"Direct fallback upload failed: {up_res.get('error')}")
+                UploadStatistics.objects.create(
+                    folder=folder,
+                    uploader_ip=uploader_ip,
+                    filename_original=original_filename,
+                    filename_converted=unique_filename,
+                    file_size_original=metadata['original_size'],
+                    file_size_converted=metadata['converted_size'],
+                    file_type='image',
+                    conversion_time_seconds=conversion_time,
+                )
+                if os.path.exists(temp_file_path):
+                    try:
+                        os.unlink(temp_file_path)
+                    except Exception:
+                        pass
+                return {
+                    'success': True,
+                    'queued_for_batch': False,
+                    'filename': unique_filename,
+                    'original_size': metadata['original_size'],
+                    'converted_size': metadata['converted_size'],
+                    'conversion_time': conversion_time,
+                }
 
-        # Get current batch
-        batch_data = cache.get(batch_key, [])
-        batch_data.append(batch_item)
+            batch_data = safe_cache_get(batch_key, [])
+            if not isinstance(batch_data, list):
+                batch_data = []
+            batch_data.append(batch_item)
+            saved = safe_cache_set(batch_key, batch_data, timeout=IMAGE_BATCH_CACHE_TTL)
+            batch_len = len(batch_data)
 
-        # Save batch back (with 5 minute expiry as safety)
-        cache.set(batch_key, batch_data, timeout=300)
+        if not saved:
+            raise RuntimeError("Failed to persist image batch in Redis")
 
-        # Check if batch is full
-        if len(batch_data) >= IMAGE_BATCH_SIZE:
-            # Trigger batch upload
+        if batch_len >= IMAGE_BATCH_SIZE:
             flush_image_batch.delay(folder_id)
         else:
-            # Schedule a delayed flush in case no more images come
             flush_image_batch.apply_async(
                 args=[folder_id],
                 countdown=IMAGE_BATCH_TIMEOUT
             )
 
-        # Clean up temp file on success
         if os.path.exists(temp_file_path):
             try:
                 os.unlink(temp_file_path)
@@ -190,18 +220,17 @@ def process_image_for_batch(
         return {
             'success': True,
             'queued_for_batch': True,
-            'batch_size': len(batch_data),
+            'batch_size': batch_len,
             'filename': new_filename,
             'original_size': metadata['original_size'],
             'converted_size': metadata['converted_size'],
+            'conversion_time': conversion_time,
         }
 
     except Exception as exc:
-        # Don't clean up temp file here - it will be needed for retry
         try:
-            raise self.retry(exc=exc, countdown=60)
+            raise self.retry(exc=exc, countdown=30)
         except MaxRetriesExceededError:
-            # All retries exhausted, clean up the temp file
             if os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)
@@ -210,80 +239,64 @@ def process_image_for_batch(
             raise
 
 
-@shared_task(bind=True, max_retries=3)
+@shared_task(bind=True, max_retries=5)
 def flush_image_batch(self, folder_id: int):
     """
-    Upload all queued images for a folder in a single bulk request.
+    Upload queued images for a folder without race conditions or data loss.
     """
-    import base64
-
     batch_key = _get_batch_key(folder_id)
-    lock_key = _get_batch_lock_key(folder_id)
 
-    # Use a lock to prevent concurrent batch flushes
-    if cache.get(lock_key):
-        # Another flush is in progress, skip
-        return {'skipped': True, 'reason': 'flush_in_progress'}
+    with redis_lock(_get_batch_flush_lock_name(folder_id), timeout=180, wait_timeout=1.0) as acquired:
+        if not acquired:
+            # Another flush is currently running; reschedule so remaining items aren't stranded
+            remaining = safe_cache_get(batch_key, [])
+            if remaining:
+                flush_image_batch.apply_async(args=[folder_id], countdown=10)
+            return {'skipped': True, 'reason': 'flush_in_progress_rescheduled'}
 
-    # Set lock with 60 second expiry
-    cache.set(lock_key, True, timeout=60)
+        try:
+            # Snapshot current batch without deleting it yet (prevents data loss on crash)
+            with redis_lock(_get_batch_mutex_name(folder_id), timeout=15, wait_timeout=10.0):
+                batch_data = safe_cache_get(batch_key, [])
+                if not batch_data:
+                    return {'success': True, 'uploaded': 0, 'reason': 'empty_batch'}
+                items_to_process = list(batch_data[:IMAGE_BATCH_SIZE])
 
-    try:
-        # Get and clear the batch atomically
-        batch_data = cache.get(batch_key, [])
-        if not batch_data:
-            return {'success': True, 'uploaded': 0, 'reason': 'empty_batch'}
+            folder = PhotoFolder.objects.select_related(
+                'owner__profile'
+            ).get(id=folder_id)
+            profile = folder.owner.profile
 
-        # Clear the batch from cache
-        cache.delete(batch_key)
+            if not profile.nextcloud_access_token:
+                raise RuntimeError("Owner's Nextcloud access token not available")
 
-        # Get folder and client
-        folder = PhotoFolder.objects.select_related(
-            'owner__profile').get(id=folder_id)
-        profile = folder.owner.profile
-
-        if not profile.nextcloud_access_token:
-            # Re-queue the batch items for later
-            cache.set(batch_key, batch_data, timeout=300)
-            raise RuntimeError("Owner's Nextcloud access token not available")
-
-        client = NextcloudClient(
-            profile.nextcloud_access_token, user_profile=profile)
-
-        # Prepare files for bulk upload
-        files_to_upload = []
-        for item in batch_data:
-            # Ensure unique filename
-            unique_filename = get_unique_filename(
-                folder,
-                item['new_filename'],
-                client
+            client = NextcloudClient(
+                profile.nextcloud_access_token, user_profile=profile
             )
 
-            files_to_upload.append({
-                'remote_path': f"{folder.nextcloud_folder_path}/{unique_filename}",
-                'content': base64.b64decode(item['content_b64']),
-                'content_type': item['content_type'],
-                'mtime': item['mtime'],
-                # Keep original data for statistics
-                '_original': item,
-                '_unique_filename': unique_filename,
-            })
-
-        # Try bulk upload first, fall back to individual uploads if not supported
-        result = client.bulk_upload(files_to_upload)
-
-        if not result['success']:
-            # Bulk upload failed (possibly not supported), try individual uploads
-            failed_items = []
-            for file_info in files_to_upload:
-                individual_result = client.upload_file(
-                    file_info['remote_path'],
-                    file_info['content'],
-                    file_info['content_type']
+            reserved_names: Set[str] = set()
+            files_to_upload = []
+            for item in items_to_process:
+                unique_filename = get_unique_filename(
+                    folder,
+                    item['new_filename'],
+                    client,
+                    reserved_names=reserved_names,
                 )
-                if individual_result['success']:
-                    # Record statistics for successful upload
+                files_to_upload.append({
+                    'remote_path': f"{folder.nextcloud_folder_path}/{unique_filename}",
+                    'content': base64.b64decode(item['content_b64']),
+                    'content_type': item['content_type'],
+                    'mtime': item.get('mtime', int(time.time())),
+                    '_original': item,
+                    '_unique_filename': unique_filename,
+                })
+
+            result = client.bulk_upload(files_to_upload)
+            succeeded_ids: Set[str] = set()
+
+            if result.get('success'):
+                for file_info in files_to_upload:
                     original = file_info['_original']
                     UploadStatistics.objects.create(
                         folder=folder,
@@ -295,47 +308,66 @@ def flush_image_batch(self, folder_id: int):
                         file_type='image',
                         conversion_time_seconds=original['conversion_time']
                     )
-                else:
-                    failed_items.append(file_info['_original'])
+                    if original.get('item_id'):
+                        succeeded_ids.add(original['item_id'])
+                upload_method = 'bulk'
+            else:
+                # Fall back to individual WebDAV PUT uploads with mtime preserved
+                for file_info in files_to_upload:
+                    original = file_info['_original']
+                    individual_result = client.upload_file(
+                        file_info['remote_path'],
+                        file_info['content'],
+                        file_info['content_type'],
+                        mtime=file_info['mtime'],
+                    )
+                    if individual_result.get('success'):
+                        UploadStatistics.objects.create(
+                            folder=folder,
+                            uploader_ip=original['uploader_ip'],
+                            filename_original=original['original_filename'],
+                            filename_converted=file_info['_unique_filename'],
+                            file_size_original=original['original_size'],
+                            file_size_converted=original['converted_size'],
+                            file_type='image',
+                            conversion_time_seconds=original['conversion_time']
+                        )
+                        if original.get('item_id'):
+                            succeeded_ids.add(original['item_id'])
+                upload_method = 'individual'
 
-            if failed_items:
-                # Re-queue failed items for retry
-                cache.set(batch_key, failed_items, timeout=300)
-                raise RuntimeError(f"Failed to upload {len(failed_items)} files individually")
+            # Atomically remove only the succeeded items from Redis batch_key
+            remaining_count = 0
+            with redis_lock(_get_batch_mutex_name(folder_id), timeout=15, wait_timeout=10.0):
+                current_batch = safe_cache_get(batch_key, [])
+                if isinstance(current_batch, list):
+                    updated_batch = [
+                        it for it in current_batch
+                        if it.get('item_id') not in succeeded_ids
+                    ]
+                    remaining_count = len(updated_batch)
+                    if updated_batch:
+                        safe_cache_set(batch_key, updated_batch, timeout=IMAGE_BATCH_CACHE_TTL)
+                    else:
+                        safe_cache_delete(batch_key)
+
+            if len(succeeded_ids) < len(files_to_upload):
+                failed_cnt = len(files_to_upload) - len(succeeded_ids)
+                raise RuntimeError(f"Failed to upload {failed_cnt} file(s) in batch")
+
+            # If more items arrived while we were uploading, trigger another flush
+            if remaining_count > 0:
+                flush_image_batch.apply_async(args=[folder_id], countdown=2)
 
             return {
                 'success': True,
-                'uploaded': len(files_to_upload),
+                'uploaded': len(succeeded_ids),
                 'folder_id': folder_id,
-                'method': 'individual',
+                'method': upload_method,
             }
 
-        # Bulk upload succeeded - record statistics for each uploaded file
-        for file_info in files_to_upload:
-            original = file_info['_original']
-            UploadStatistics.objects.create(
-                folder=folder,
-                uploader_ip=original['uploader_ip'],
-                filename_original=original['original_filename'],
-                filename_converted=file_info['_unique_filename'],
-                file_size_original=original['original_size'],
-                file_size_converted=original['converted_size'],
-                file_type='image',
-                conversion_time_seconds=original['conversion_time']
-            )
-
-        return {
-            'success': True,
-            'uploaded': len(files_to_upload),
-            'folder_id': folder_id,
-        }
-
-    except Exception as exc:
-        raise self.retry(exc=exc, countdown=60)
-
-    finally:
-        # Release lock
-        cache.delete(lock_key)
+        except Exception as exc:
+            raise self.retry(exc=exc, countdown=30)
 
 
 @shared_task(bind=True, max_retries=3)
@@ -350,37 +382,35 @@ def process_uploaded_file(
     """
     Process an uploaded file: convert and upload to Nextcloud.
 
-    Args:
-        folder_id: PhotoFolder ID
-        temp_file_path: Path to temporary uploaded file
-        original_filename: Original filename from upload
-        uploader_ip: IP address of uploader
-        is_video: True if video file, False if image
+    Uses Redis-cached Nextcloud user metadata, Redis-locked unique filename
+    reservation, and persistent HTTP connection pooling so each file upload
+    requires only a single WebDAV PUT request and only reports SUCCESS after
+    Nextcloud confirms the upload.
     """
     start_time = time.time()
+    converted_file_path = None
 
     try:
-        # Get folder and owner's Nextcloud credentials
         folder = PhotoFolder.objects.select_related(
-            'owner__profile').get(id=folder_id)
+            'owner__profile'
+        ).get(id=folder_id)
         profile = folder.owner.profile
 
         if not profile.nextcloud_access_token:
             raise RuntimeError("Owner's Nextcloud access token not available")
 
         client = NextcloudClient(
-            profile.nextcloud_access_token, user_profile=profile)
-
-        # Convert file
-        converted_file_path = None  # Track for cleanup in streaming mode
+            profile.nextcloud_access_token, user_profile=profile
+        )
 
         if is_video:
-            # Use streaming mode for videos to avoid loading entire file into memory
-            converted_file_path, metadata = convert_video_to_mp4(
-                temp_file_path,
-                crf=settings.VIDEO_CRF,
-                stream_mode=True  # Returns file path instead of bytes
-            )
+            # Serialize heavy FFmpeg video conversions so image workers are never starved
+            with redis_lock("video_ffmpeg_encode_lock", timeout=3600, wait_timeout=3600):
+                converted_file_path, metadata = convert_video_to_mp4(
+                    temp_file_path,
+                    crf=settings.VIDEO_CRF,
+                    stream_mode=True
+                )
             file_date = metadata.get('creation_date')
             content_type = 'video/mp4'
         else:
@@ -391,7 +421,8 @@ def process_uploaded_file(
             file_date = metadata.get('exif_date')
             content_type = 'image/jpeg'
 
-        # Generate filename
+        mtime = int(file_date.timestamp()) if file_date else int(time.time())
+
         new_filename = generate_filename(
             folder,
             original_filename,
@@ -399,28 +430,30 @@ def process_uploaded_file(
             is_video
         )
 
-        # Ensure unique filename
         unique_filename = get_unique_filename(folder, new_filename, client)
-
-        # Upload to Nextcloud
         remote_path = f"{folder.nextcloud_folder_path}/{unique_filename}"
 
         if is_video:
-            # Use streaming upload for videos (memory-efficient)
             result = client.upload_file_streaming(
-                remote_path, converted_file_path, content_type)
-            # Clean up converted video file
+                remote_path,
+                converted_file_path,
+                content_type,
+                mtime=mtime,
+            )
             if converted_file_path and os.path.exists(converted_file_path):
                 os.unlink(converted_file_path)
                 converted_file_path = None
         else:
             result = client.upload_file(
-                remote_path, converted_bytes, content_type)
+                remote_path,
+                converted_bytes,
+                content_type,
+                mtime=mtime,
+            )
 
         if not result['success']:
             raise RuntimeError(f"Upload failed: {result.get('error')}")
 
-        # Record statistics
         conversion_time = time.time() - start_time
         UploadStatistics.objects.create(
             folder=folder,
@@ -433,7 +466,6 @@ def process_uploaded_file(
             conversion_time_seconds=conversion_time
         )
 
-        # Clean up temp file on success
         if os.path.exists(temp_file_path):
             try:
                 os.unlink(temp_file_path)
@@ -449,17 +481,14 @@ def process_uploaded_file(
         }
 
     except Exception as exc:
-        # Clean up converted video file on error (but keep temp file for retry)
         if converted_file_path and os.path.exists(converted_file_path):
             try:
                 os.unlink(converted_file_path)
             except Exception:
                 pass
-        # Retry on failure - don't clean up temp_file_path, it's needed for retry
         try:
-            raise self.retry(exc=exc, countdown=60)
+            raise self.retry(exc=exc, countdown=30)
         except MaxRetriesExceededError:
-            # All retries exhausted, clean up the temp file
             if os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)

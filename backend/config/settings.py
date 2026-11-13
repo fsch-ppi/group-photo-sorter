@@ -82,15 +82,25 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': Path(os.getenv('SQLITE_DB_PATH', str(BASE_DIR / 'db.sqlite3'))),
+        'OPTIONS': {
+            'timeout': 30,
+            'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+        },
     }
 }
 
-# Cache configuration (using Redis for rate limiting and bot protection)
+# Cache configuration (using Redis with connection health checks and retry)
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
         'LOCATION': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+        'OPTIONS': {
+            'socket_connect_timeout': 5,
+            'socket_timeout': 5,
+            'retry_on_timeout': True,
+            'health_check_interval': 30,
+        },
     }
 }
 
@@ -130,21 +140,25 @@ REST_FRAMEWORK = {
 
 # CORS settings
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-CORS_ALLOWED_ORIGINS = [
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys([
     FRONTEND_URL,
+    'https://sz-verwaltung.ddns.net:18443',
     'https://sz-verwaltung.ddns.net:8444',
     'http://localhost:5173',
-    'http://localhost:8444',
-]
+    'http://localhost:18443',
+    'https://localhost:18443',
+]))
 CORS_ALLOW_CREDENTIALS = True
 
 # CSRF settings
-CSRF_TRUSTED_ORIGINS = [
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([
     FRONTEND_URL,
+    'https://sz-verwaltung.ddns.net:18443',
     'https://sz-verwaltung.ddns.net:8444',
     'http://localhost:5173',
-    'http://localhost:8444',
-]
+    'http://localhost:18443',
+    'https://localhost:18443',
+]))
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read the cookie
 CSRF_COOKIE_SECURE = not DEBUG
@@ -183,10 +197,18 @@ SOCIAL_AUTH_PIPELINE = (
 # Celery Configuration
 CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    'visibility_timeout': 7200,
+    'health_check_interval': 30,
+    'retry_on_timeout': True,
+}
+CELERY_REDIS_BACKEND_HEALTH_CHECK_INTERVAL = 30
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
 
 # Task result persistence for session recovery
 CELERY_RESULT_EXPIRES = 7 * 24 * 60 * 60  # 7 days
@@ -194,16 +216,13 @@ CELERY_RESULT_EXPIRES = 7 * 24 * 60 * 60  # 7 days
 # Worker prefetch - only grab 1 task at a time for better buffering
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
-# Rate limiting for Nextcloud API (avoid 429 errors)
-# - Videos still use individual uploads, rate limited to avoid issues
-# - Images use bulk upload (20 at a time), so no rate limit needed on the batch task
-# - flush_image_batch is rate limited since it makes the actual API call
+# Rate limiting for Nextcloud API (NextcloudClient also handles 429 Retry-After backoff)
 CELERY_TASK_ANNOTATIONS = {
     'apps.uploads.tasks.process_uploaded_file': {
-        'rate_limit': '6/m',  # 6 videos per minute max
+        'rate_limit': '60/m',
     },
     'apps.uploads.tasks.flush_image_batch': {
-        'rate_limit': '2/m',  # 2 batch uploads per minute (40 images/min)
+        'rate_limit': '12/m',
     },
 }
 
@@ -219,9 +238,6 @@ CELERY_TASK_QUEUES = {
 }
 CELERY_TASK_DEFAULT_QUEUE = 'default'
 CELERY_TASK_ROUTES = {
-    'apps.uploads.tasks.process_uploaded_file': {
-        'queue': 'low',  # Videos on low priority
-    },
     'apps.uploads.tasks.process_image_for_batch': {
         'queue': 'high',  # Image conversion on high priority
     },

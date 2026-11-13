@@ -8,7 +8,7 @@
 	let loading = true;
 	let error = '';
 
-	$: folderId = parseInt($page.params.id);
+	$: folderId = parseInt($page.params.id || '0', 10);
 
 	onMount(async () => {
 		await loadData();

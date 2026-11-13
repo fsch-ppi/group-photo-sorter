@@ -31,9 +31,9 @@ ENV DJANGO_SETTINGS_MODULE=config.settings
 # Create app user with fixed UID (must match backend for volume sharing)
 RUN groupadd -r -g 1000 app && useradd -r -u 1000 -g app app
 
-# Create temp upload directory and celery data directory with correct permissions
-RUN mkdir -p /tmp/photo_import_uploads /var/lib/celery && \
-    chown -R app:app /tmp/photo_import_uploads /var/lib/celery /app
+# Create temp upload directory, persistent data directory, and celery data directory with correct permissions
+RUN mkdir -p /tmp/photo_import_uploads /app/data /var/lib/celery && \
+    chown -R app:app /tmp/photo_import_uploads /app/data /var/lib/celery /app
 
 WORKDIR /app/backend
 
@@ -41,6 +41,5 @@ WORKDIR /app/backend
 USER app
 
 # Run Celery worker - consume high priority queue first, then default, then low
-# This ensures photos are processed before videos
-# Using concurrency=1 ensures only one file is processed at a time (important for video processing)
-CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=1", "-Q", "high,default,low"]
+# Video FFmpeg conversions are serialized via Redis lock so photo uploads on high queue are never blocked
+CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=3", "-Q", "high,default,low"]

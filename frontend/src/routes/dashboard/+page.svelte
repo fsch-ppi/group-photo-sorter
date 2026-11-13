@@ -104,6 +104,7 @@
 		try {
 			const result = await folders.regenerateToken(selectedFolder.id);
 			selectedFolder = { ...selectedFolder, share_token: result.share_token, upload_url: result.upload_url };
+			folderList = folderList.map((f) => (f.id === selectedFolder?.id ? selectedFolder : f));
 			showToast('Upload link regenerated');
 		} catch (e) {
 			console.error('Failed to regenerate token:', e);
@@ -120,6 +121,7 @@
 				nextcloud_share_token: result.nextcloud_share_token,
 				nextcloud_share_url: result.nextcloud_share_url
 			};
+			folderList = folderList.map((f) => (f.id === selectedFolder?.id ? selectedFolder : f));
 			showToast('Nextcloud share link regenerated');
 		} catch (e) {
 			console.error('Failed to regenerate Nextcloud share:', e);

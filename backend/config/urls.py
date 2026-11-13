@@ -12,5 +12,9 @@ urlpatterns = [
     path('api/auth/', include('apps.core.urls')),
     path('api/folders/', include('apps.folders.urls')),
     path('api/upload/', include('apps.uploads.urls')),
+    # Also support /api/v1/ prefix for backwards compatibility
+    path('api/v1/auth/', include('apps.core.urls')),
+    path('api/v1/folders/', include('apps.folders.urls')),
+    path('api/v1/upload/', include('apps.uploads.urls')),
     path('social/', include('social_django.urls', namespace='social')),
 ]
