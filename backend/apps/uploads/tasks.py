@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Set
 
 from celery import shared_task
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 from django.conf import settings
 from django.utils import timezone
 
@@ -408,7 +408,7 @@ def process_uploaded_file(
             # reschedule this video on the low queue so this worker stays free to process high-priority photos!
             with redis_lock("video_ffmpeg_encode_lock", timeout=3600, wait_timeout=0) as acquired:
                 if not acquired:
-                    raise self.retry(countdown=15, max_retries=240)
+                    raise self.retry(countdown=15, max_retries=240, queue='low')
                 converted_file_path, metadata = convert_video_to_mp4(
                     temp_file_path,
                     crf=settings.VIDEO_CRF,
@@ -483,6 +483,8 @@ def process_uploaded_file(
             'conversion_time': conversion_time
         }
 
+    except Retry:
+        raise
     except Exception as exc:
         if converted_file_path and os.path.exists(converted_file_path):
             try:
@@ -490,7 +492,7 @@ def process_uploaded_file(
             except Exception:
                 pass
         try:
-            raise self.retry(exc=exc, countdown=30)
+            raise self.retry(exc=exc, countdown=30, max_retries=3)
         except MaxRetriesExceededError:
             if os.path.exists(temp_file_path):
                 try:
