@@ -404,8 +404,11 @@ def process_uploaded_file(
         )
 
         if is_video:
-            # Serialize heavy FFmpeg video conversions so image workers are never starved
-            with redis_lock("video_ffmpeg_encode_lock", timeout=3600, wait_timeout=3600):
+            # Acquire non-blocking video encode lock; if another worker is already encoding a video,
+            # reschedule this video on the low queue so this worker stays free to process high-priority photos!
+            with redis_lock("video_ffmpeg_encode_lock", timeout=3600, wait_timeout=0) as acquired:
+                if not acquired:
+                    raise self.retry(countdown=15, max_retries=240)
                 converted_file_path, metadata = convert_video_to_mp4(
                     temp_file_path,
                     crf=settings.VIDEO_CRF,

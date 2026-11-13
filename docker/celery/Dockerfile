@@ -41,5 +41,5 @@ WORKDIR /app/backend
 USER app
 
 # Run Celery worker - consume high priority queue first, then default, then low
-# Video FFmpeg conversions are serialized via Redis lock so photo uploads on high queue are never blocked
-CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=3", "-Q", "high,default,low"]
+# -Ofair + prefetch_multiplier=1 ensures long video tasks never block free workers from picking up high-priority photos
+CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=3", "-Ofair", "--prefetch-multiplier=1", "-Q", "high,default,low"]
