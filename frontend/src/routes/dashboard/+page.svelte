@@ -34,7 +34,8 @@
 		naming_format: 'date_event',
 		jpeg_quality: 90,
 		readme_message: '',
-		storage_limit_gb: null as number | null
+		storage_limit_gb: null as number | null,
+		show_download_link: true
 	};
 	let creating = false;
 	let createError = '';
@@ -87,7 +88,8 @@
 			naming_format: 'date_event',
 			jpeg_quality: 90,
 			readme_message: '',
-			storage_limit_gb: null
+			storage_limit_gb: null,
+			show_download_link: true
 		};
 	}
 
@@ -140,6 +142,25 @@
 		} catch (e) {
 			console.error('Failed to toggle active:', e);
 			showToast('Failed to update status', 'error');
+		}
+	}
+
+	async function toggleShowDownloadLink() {
+		if (!selectedFolder) return;
+		try {
+			const updated = await folders.update(selectedFolder.id, {
+				show_download_link: !selectedFolder.show_download_link
+			});
+			selectedFolder = updated;
+			folderList = folderList.map((f) => (f.id === updated.id ? updated : f));
+			showToast(
+				updated.show_download_link
+					? 'Download link visible to uploaders'
+					: 'Download link hidden from uploaders'
+			);
+		} catch (e) {
+			console.error('Failed to toggle download link visibility:', e);
+			showToast('Failed to update setting', 'error');
 		}
 	}
 
@@ -335,6 +356,23 @@
 							<input type="number" id="storage_limit" class="input" bind:value={createForm.storage_limit_gb} placeholder="e.g., 5 for 5GB" min="0.1" step="0.1" />
 							<p class="text-xs text-gray-500 mt-1">Maximum storage allowed for this folder. Leave empty for no limit.</p>
 						</div>
+
+						<div class="flex items-start gap-3 pt-1">
+							<input
+								type="checkbox"
+								id="show_download_link"
+								class="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+								bind:checked={createForm.show_download_link}
+							/>
+							<div>
+								<label class="font-medium text-sm text-gray-900" for="show_download_link">
+									Share download link with uploaders
+								</label>
+								<p class="text-xs text-gray-500 mt-0.5">
+									When disabled, uploaders can only upload files and won't see the shared Nextcloud folder link.
+								</p>
+							</div>
+						</div>
 					</div>
 
 					<div class="flex justify-end space-x-3 mt-6">
@@ -372,6 +410,24 @@
 						</div>
 						<button class={`btn ${selectedFolder.is_active ? 'btn-secondary' : 'btn-primary'}`} on:click={toggleActive}>
 							{selectedFolder.is_active ? 'Pause' : 'Enable'}
+						</button>
+					</div>
+
+					<!-- Share Download Link with Uploaders -->
+					<div class="flex items-center justify-between bg-gray-50 rounded-lg p-4">
+						<div>
+							<p class="font-medium">Share Download Link with Uploaders</p>
+							<p class="text-sm text-gray-600">
+								{selectedFolder.show_download_link
+									? 'Uploaders can view & download from the shared folder'
+									: 'Upload-only mode (download link hidden from uploaders)'}
+							</p>
+						</div>
+						<button
+							class={`btn ${selectedFolder.show_download_link ? 'btn-secondary' : 'btn-primary'}`}
+							on:click={toggleShowDownloadLink}
+						>
+							{selectedFolder.show_download_link ? 'Disable' : 'Enable'}
 						</button>
 					</div>
 

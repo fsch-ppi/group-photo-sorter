@@ -41,6 +41,7 @@ export interface PhotoFolder {
 	nextcloud_share_token: string;
 	share_token: string;
 	is_active: boolean;
+	show_download_link: boolean;
 	naming_format: string;
 	jpeg_quality: number;
 	readme_message: string;
@@ -81,6 +82,7 @@ export interface FolderInfo {
 	name: string;
 	event_name: string;
 	readme_message?: string;
+	show_download_link?: boolean;
 	nextcloud_share_url: string | null;
 	supported_image_formats: string[];
 	supported_video_formats: string[];

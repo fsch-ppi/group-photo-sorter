@@ -704,6 +704,18 @@
 					View & Download Photos ↗
 				</a>
 			</div>
+		{:else if uploadComplete && successCount > 0}
+			<div class="mt-6 bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+				<svg class="w-12 h-12 text-green-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+				</svg>
+				<h3 class="text-xl font-semibold text-green-800 mb-2">
+					{successCount} file(s) uploaded successfully!
+				</h3>
+				<p class="text-green-700">
+					Thank you! Your photos and videos have been converted and saved.
+				</p>
+			</div>
 		{/if}
 
 		<!-- File List -->
@@ -888,7 +900,9 @@
 				<li>Upload your photos and videos</li>
 				<li>They'll be automatically converted to JPEG/MP4</li>
 				<li>Files are organized and named by capture date</li>
-				<li>Click the link above to view and download all photos</li>
+				{#if folderInfo.nextcloud_share_url}
+					<li>Click the link above to view and download all photos</li>
+				{/if}
 			</ol>
 		</div>
 	{/if}

@@ -56,6 +56,10 @@ class PhotoFolder(models.Model):
     )
     is_active = models.BooleanField(
         default=True, help_text='Whether uploads are enabled')
+    show_download_link = models.BooleanField(
+        default=True,
+        help_text='Whether to share the Nextcloud download link with uploaders'
+    )
 
     # File naming configuration
     naming_format = models.CharField(

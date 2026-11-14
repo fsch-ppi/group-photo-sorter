@@ -66,7 +66,10 @@ def folder_info(request, share_token):
         'name': folder.name,
         'event_name': folder.event_name,
         'readme_message': folder.readme_message,
-        'nextcloud_share_url': folder.nextcloud_share_url,
+        'show_download_link': folder.show_download_link,
+        'nextcloud_share_url': (
+            folder.nextcloud_share_url if folder.show_download_link else None
+        ),
         'supported_image_formats': sorted(settings.SUPPORTED_IMAGE_EXTENSIONS),
         'supported_video_formats': sorted(settings.SUPPORTED_VIDEO_EXTENSIONS),
         'max_upload_size_mb': settings.MAX_UPLOAD_SIZE_MB,
@@ -224,7 +227,9 @@ def upload_file(request, share_token):
         'task_id': task.id,
         'message': 'File uploaded and queued for processing',
         'filename': original_filename,
-        'nextcloud_share_url': folder.nextcloud_share_url,
+        'nextcloud_share_url': (
+            folder.nextcloud_share_url if folder.show_download_link else None
+        ),
     }, status=status.HTTP_202_ACCEPTED)
 
 

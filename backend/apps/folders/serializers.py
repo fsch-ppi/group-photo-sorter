@@ -17,8 +17,9 @@ class PhotoFolderListSerializer(serializers.ModelSerializer):
         model = PhotoFolder
         fields = [
             'id', 'name', 'event_name', 'nextcloud_folder_path',
-            'is_active', 'naming_format', 'upload_url', 'nextcloud_share_url',
-            'upload_count', 'storage_limit_gb', 'created_at', 'updated_at'
+            'is_active', 'show_download_link', 'naming_format', 'upload_url',
+            'nextcloud_share_url', 'upload_count', 'storage_limit_gb',
+            'created_at', 'updated_at'
         ]
 
     def get_upload_count(self, obj):
@@ -36,9 +37,9 @@ class PhotoFolderDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'event_name', 'nextcloud_folder_path',
             'nextcloud_share_token', 'share_token', 'is_active',
-            'naming_format', 'jpeg_quality', 'readme_message',
-            'storage_limit_gb', 'upload_url', 'nextcloud_share_url',
-            'created_at', 'updated_at'
+            'show_download_link', 'naming_format', 'jpeg_quality',
+            'readme_message', 'storage_limit_gb', 'upload_url',
+            'nextcloud_share_url', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'share_token', 'created_at', 'updated_at']
 
@@ -51,7 +52,7 @@ class PhotoFolderCreateSerializer(serializers.ModelSerializer):
         fields = [
             'name', 'event_name', 'nextcloud_folder_path',
             'naming_format', 'jpeg_quality', 'readme_message',
-            'storage_limit_gb'
+            'storage_limit_gb', 'show_download_link'
         ]
 
     def create(self, validated_data):
